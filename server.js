@@ -1,0 +1,210 @@
+/**
+ * Backend Server for Google Sheets API
+ *
+ * This server handles Google Sheets API calls using service account
+ * so the frontend doesn't need to expose credentials
+ */
+
+import express from 'express';
+import cors from 'cors';
+import { google } from 'googleapis';
+import fs from 'fs';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3002;
+
+// Enable CORS for frontend
+app.use(cors());
+app.use(express.json());
+
+const SHEET_ID = process.env.VITE_GOOGLE_SHEET_ID;
+const CREDENTIALS_PATH = process.env.VITE_GOOGLE_CREDENTIALS_PATH || './regal-state-476817-j3-0ec41d121201.json';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+/**
+ * Configuration for different analysis types
+ */
+const ANALYSIS_CONFIGS = {
+  'score-explanation': {
+    model: 'gemini-2.5-flash',
+    temperature: 0.5,  // More deterministic for numerical explanations
+    maxOutputTokens: 1500,
+    description: 'LLM explanation of score variance and trends'
+  },
+  'team-insights': {
+    model: 'gemini-2.5-flash',
+    temperature: 0.7,  // More creative for qualitative insights
+    maxOutputTokens: 2048,
+    description: 'AI-powered team chemistry insights'
+  }
+};
+
+/**
+ * GET /api/sheets
+ * Fetches data from Google Sheets using service account
+ */
+app.get('/api/sheets', async (req, res) => {
+  try {
+    // Check if credentials file exists
+    if (!fs.existsSync(CREDENTIALS_PATH)) {
+      return res.status(500).json({
+        error: 'Service account credentials not found',
+        path: CREDENTIALS_PATH
+      });
+    }
+
+    // Read credentials
+    const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+
+    // Create auth client
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+
+    const authClient = await auth.getClient();
+
+    // Create sheets API instance
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    // Fetch data
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'Weekly',
+    });
+
+    const data = response.data.values;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({
+        error: 'No data found in sheet',
+        message: 'Make sure the sheet has data and the service account has access'
+      });
+    }
+
+    // Return the raw data
+    res.json({
+      success: true,
+      values: data,
+      rowCount: data.length,
+      columnCount: data[0]?.length || 0
+    });
+
+  } catch (error) {
+    console.error('Error fetching Google Sheets data:', error);
+
+    res.status(500).json({
+      error: 'Failed to fetch Google Sheets data',
+      message: error.message,
+      details: error.code === 403 ? 'Service account needs access to the sheet' : undefined
+    });
+  }
+});
+
+/**
+ * POST /api/analyze
+ * Sends prompt to Gemini API for team analysis
+ * Supports multiple analysis types with different configurations
+ */
+app.post('/api/analyze', async (req, res) => {
+  try {
+    const { prompt, type = 'team-insights', config } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({
+        error: 'Missing prompt',
+        message: 'Request body must include a "prompt" field'
+      });
+    }
+
+    if (!GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: 'Gemini API key not configured',
+        message: 'Set GEMINI_API_KEY in environment variables'
+      });
+    }
+
+    // Get configuration for analysis type (or use custom config)
+    const analysisConfig = config || ANALYSIS_CONFIGS[type] || ANALYSIS_CONFIGS['team-insights'];
+
+    console.log(`📊 Running ${type} analysis with config:`, {
+      model: analysisConfig.model,
+      temperature: analysisConfig.temperature,
+      maxTokens: analysisConfig.maxOutputTokens
+    });
+
+    // Call Gemini API with type-specific configuration
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${analysisConfig.model}:generateContent?key=${GEMINI_API_KEY}`;
+
+    const geminiResponse = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: analysisConfig.temperature,
+          maxOutputTokens: analysisConfig.maxOutputTokens,
+        }
+      })
+    });
+
+    if (!geminiResponse.ok) {
+      const errorData = await geminiResponse.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || `Gemini API error: ${geminiResponse.status}`);
+    }
+
+    const geminiData = await geminiResponse.json();
+
+    // Extract the generated text
+    const analysis = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    if (!analysis) {
+      throw new Error('No analysis generated by Gemini');
+    }
+
+    res.json({
+      success: true,
+      analysis,
+      type
+    });
+
+  } catch (error) {
+    console.error('Error calling Gemini API:', error);
+
+    res.status(500).json({
+      error: 'Failed to analyze with Gemini',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * Health check endpoint
+ */
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    sheetId: SHEET_ID
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Backend server running on http://localhost:${PORT}`);
+  console.log(`📊 Sheet ID: ${SHEET_ID}`);
+  console.log(`🔑 Credentials: ${CREDENTIALS_PATH}`);
+  console.log();
+  console.log(`API Endpoints:`);
+  console.log(`  GET  http://localhost:${PORT}/api/sheets`);
+  console.log(`  POST http://localhost:${PORT}/api/analyze`);
+  console.log(`  GET  http://localhost:${PORT}/health`);
+});
