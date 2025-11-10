@@ -1,5 +1,28 @@
+# =============================================================================
+# NGauge .gitignore - Enhanced Security
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.js
+
+# -----------------------------------------------------------------------------
+# Build Output
+# -----------------------------------------------------------------------------
+dist/
+dist-ssr/
+build/
+.cache/
+.vercel/
+.output/
+
+# -----------------------------------------------------------------------------
 # Logs
-logs
+# -----------------------------------------------------------------------------
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,34 +30,100 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# -----------------------------------------------------------------------------
+# Environment Variables - CRITICAL: NEVER COMMIT
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env*.local
 
-# Editor directories and files
+# -----------------------------------------------------------------------------
+# Google Cloud Credentials - CRITICAL: NEVER COMMIT
+# -----------------------------------------------------------------------------
+# Service account JSON files
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!jsconfig.json
+!vercel.json
+
+# Specific patterns for Google credentials
+*-credentials.json
+*service-account*.json
+*-key.json
+*gcp*.json
+credentials/
+secrets/
+
+# -----------------------------------------------------------------------------
+# Editor Directories and Files
+# -----------------------------------------------------------------------------
 .vscode/*
 !.vscode/extensions.json
-.idea
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*.swn
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*~
 
-# Environment variables
-.env
-.env.local
-.env.production
+# -----------------------------------------------------------------------------
+# OS Files
+# -----------------------------------------------------------------------------
+Thumbs.db
+Desktop.ini
 
-# Google Cloud credentials - NEVER COMMIT THESE
-*.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!jsconfig.json
+# -----------------------------------------------------------------------------
+# Testing
+# -----------------------------------------------------------------------------
+coverage/
+.nyc_output/
+*.lcov
 
-# Service account keys
-*-credentials.json
-*service-account*.json
+# -----------------------------------------------------------------------------
+# Temporary Files
+# -----------------------------------------------------------------------------
+*.tmp
+*.temp
+.temp/
+.tmp/
+
+# -----------------------------------------------------------------------------
+# Local Development
+# -----------------------------------------------------------------------------
+*.local
+
+# -----------------------------------------------------------------------------
+# Database (if applicable)
+# -----------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+
+# -----------------------------------------------------------------------------
+# Miscellaneous
+# -----------------------------------------------------------------------------
+.turbo/
+.next/
+.nuxt/
+
+# =============================================================================
+# SECURITY REMINDER:
+# - Never commit .env files
+# - Never commit credentials or API keys
+# - Use .env.example as a template
+# - Store secrets in Vercel dashboard for production
+# =============================================================================

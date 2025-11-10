@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import PropTypes from 'prop-types';
 
 const TrendIndicator = ({ trend }) => {
   if (!trend || trend.direction === 'stable') {
@@ -40,6 +41,19 @@ const TrendIndicator = ({ trend }) => {
       </div>
     </div>
   );
+};
+
+TrendIndicator.propTypes = {
+  trend: PropTypes.shape({
+    direction: PropTypes.oneOf(['up', 'down', 'stable']).isRequired,
+    magnitude: PropTypes.number,
+    change: PropTypes.number,
+    color: PropTypes.string,
+  }),
+};
+
+TrendIndicator.defaultProps = {
+  trend: null,
 };
 
 export default TrendIndicator;

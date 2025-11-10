@@ -12,6 +12,7 @@
  */
 
 import React from 'react';
+import PropTypes from 'prop-types';
 
 const InsightsPanel = ({ insights = [] }) => {
   // Placeholder insights for demonstration
@@ -53,23 +54,23 @@ const InsightsPanel = ({ insights = [] }) => {
         </h2>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         {displayInsights.map((insight, index) => (
           <div
             key={index}
-            className={`p-5 rounded-lg border-l-4 transition-all duration-300 hover:shadow-md ${getTypeColor(insight.type)}`}
+            className={`p-7 rounded-lg border-l-4 transition-all duration-300 hover:shadow-md ${getTypeColor(insight.type)}`}
           >
             <div className="flex items-start gap-4">
               <div className="flex-1">
-                <div className="font-bold text-lg mb-2 uppercase tracking-wide">
+                <div className="font-bold text-xl mb-3 uppercase tracking-wide">
                   {insight.category}
                 </div>
-                <p className="text-base leading-relaxed mb-3">
+                <p className="text-lg leading-relaxed mb-4">
                   {insight.message}
                 </p>
                 {insight.recommendation && (
-                  <div className="mt-3 pt-3 border-t border-current border-opacity-20">
-                    <p className="text-sm font-semibold opacity-90">
+                  <div className="mt-4 pt-4 border-t border-current border-opacity-20">
+                    <p className="text-base font-semibold opacity-90">
                       → Recommendation: {insight.recommendation}
                     </p>
                   </div>
@@ -82,6 +83,21 @@ const InsightsPanel = ({ insights = [] }) => {
 
     </div>
   );
+};
+
+InsightsPanel.propTypes = {
+  insights: PropTypes.arrayOf(
+    PropTypes.shape({
+      type: PropTypes.oneOf(['positive', 'success', 'warning', 'critical', 'info', 'placeholder']).isRequired,
+      category: PropTypes.string.isRequired,
+      message: PropTypes.string.isRequired,
+      recommendation: PropTypes.string,
+    })
+  ),
+};
+
+InsightsPanel.defaultProps = {
+  insights: [],
 };
 
 export default InsightsPanel;

@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import PropTypes from 'prop-types';
 import { getScoreColor } from '../utils/calculations';
 
 const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
@@ -143,6 +144,25 @@ const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
       </svg>
     </div>
   );
+};
+
+TrendChart.propTypes = {
+  scoreHistory: PropTypes.arrayOf(
+    PropTypes.shape({
+      score: PropTypes.number.isRequired,
+      timestamp: PropTypes.oneOfType([
+        PropTypes.string,
+        PropTypes.number,
+        PropTypes.instanceOf(Date)
+      ]).isRequired,
+    })
+  ),
+  currentScore: PropTypes.number,
+};
+
+TrendChart.defaultProps = {
+  scoreHistory: [],
+  currentScore: 0,
 };
 
 export default TrendChart;
