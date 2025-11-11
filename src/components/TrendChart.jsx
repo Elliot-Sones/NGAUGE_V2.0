@@ -10,9 +10,27 @@ import PropTypes from 'prop-types';
 import { getScoreColor } from '../utils/calculations';
 
 const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
-  // Chart dimensions
-  const width = 400;
-  const height = 200;
+  // Responsive chart dimensions
+  const containerRef = React.useRef(null);
+  const [dimensions, setDimensions] = React.useState({ width: 400, height: 200 });
+
+  React.useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.offsetWidth;
+        // Scale down for mobile, but maintain aspect ratio
+        const width = Math.min(containerWidth, 400);
+        const height = width * 0.5; // Maintain 2:1 aspect ratio
+        setDimensions({ width, height });
+      }
+    };
+
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, []);
+
+  const { width, height } = dimensions;
   const padding = { top: 20, right: 20, bottom: 30, left: 40 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
@@ -20,8 +38,10 @@ const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
   // If no history, show placeholder
   if (scoreHistory.length === 0) {
     return (
-      <div className="flex items-center justify-center bg-gray-50 rounded-lg border-2 border-gray-200" style={{ width, height }}>
-        <p className="text-sm text-gray-500 font-medium">No trend data yet</p>
+      <div ref={containerRef} className="w-full max-w-[400px]">
+        <div className="flex items-center justify-center bg-gray-50 rounded-lg border-2 border-gray-200" style={{ width, height }}>
+          <p className="text-xs sm:text-sm text-gray-500 font-medium">No trend data yet</p>
+        </div>
       </div>
     );
   }
@@ -56,11 +76,11 @@ const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg border-2 border-gray-200 p-4">
+    <div ref={containerRef} className="w-full max-w-[400px] bg-white rounded-lg border-2 border-gray-200 p-3 sm:p-4">
       <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">
         Score Trend
       </h3>
-      <svg width={width} height={height} className="overflow-visible">
+      <svg width={width} height={height} className="overflow-visible w-full">
         {/* Grid lines */}
         <g className="grid-lines">
           {[0, 25, 50, 75, 100].map(value => {

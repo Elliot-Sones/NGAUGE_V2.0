@@ -47,30 +47,30 @@ const InsightsPanel = ({ insights = [] }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg border-2 border-gray-200 p-8">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 uppercase tracking-tight">
+    <div className="bg-white rounded-lg border-2 border-gray-200 p-4 sm:p-6 lg:p-8">
+      <div className="mb-4 sm:mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-900 uppercase tracking-tight">
           Things to look out for
         </h2>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {displayInsights.map((insight, index) => (
           <div
             key={index}
-            className={`p-7 rounded-lg border-l-4 transition-all duration-300 hover:shadow-md ${getTypeColor(insight.type)}`}
+            className={`p-4 sm:p-6 lg:p-7 rounded-lg border-l-4 transition-all duration-300 hover:shadow-md ${getTypeColor(insight.type)}`}
           >
-            <div className="flex items-start gap-4">
+            <div className="flex items-start gap-3 sm:gap-4">
               <div className="flex-1">
-                <div className="font-bold text-xl mb-3 uppercase tracking-wide">
+                <div className="font-bold text-base sm:text-lg lg:text-xl mb-2 sm:mb-3 uppercase tracking-wide">
                   {insight.category}
                 </div>
-                <p className="text-lg leading-relaxed mb-4">
+                <p className="text-sm sm:text-base lg:text-lg leading-relaxed mb-3 sm:mb-4">
                   {insight.message}
                 </p>
                 {insight.recommendation && (
-                  <div className="mt-4 pt-4 border-t border-current border-opacity-20">
-                    <p className="text-base font-semibold opacity-90">
+                  <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-current border-opacity-20">
+                    <p className="text-xs sm:text-sm lg:text-base font-semibold opacity-90">
                       → Recommendation: {insight.recommendation}
                     </p>
                   </div>
