@@ -1,4 +1,5 @@
-# NGauge - Team Chemistry Dashboard
+# NGauge - Team Chemistry Dashboard Version2
+
 
 **Enterprise-grade team chemistry analytics platform** with real-time Google Sheets integration and AI-powered insights.
 
