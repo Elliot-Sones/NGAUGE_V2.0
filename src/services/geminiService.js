@@ -18,6 +18,8 @@ async function callGeminiAPI(prompt, type = 'team-insights') {
     ? import.meta.env.VITE_BACKEND_URL
     : (import.meta.env.DEV ? 'http://localhost:3002' : '');
 
+  console.log('Calling Gemini API:', { type, promptLength: prompt.length });
+
   const response = await fetch(`${backendUrl}/api/analyze`, {
     method: 'POST',
     headers: {
@@ -31,12 +33,20 @@ async function callGeminiAPI(prompt, type = 'team-insights') {
     console.error('Backend API error:', {
       status: response.status,
       statusText: response.statusText,
-      errorData
+      errorData: errorData,
+      message: errorData.message,
+      error: errorData.error,
+      details: errorData.details
     });
     throw new Error(errorData.message || `API error: ${response.status}`);
   }
 
   const data = await response.json();
+  console.log('Gemini API response received:', {
+    type,
+    analysisLength: data.analysis?.length,
+    timestamp: data.timestamp
+  });
   return data.analysis;
 }
 
