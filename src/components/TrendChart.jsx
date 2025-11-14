@@ -9,7 +9,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { getScoreColor } from '../utils/calculations';
 
-const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
+const TrendChart = ({ scoreHistory = [], currentScore = 0 } = {}) => {
   // Responsive chart dimensions
   const containerRef = React.useRef(null);
   const [dimensions, setDimensions] = React.useState({ width: 400, height: 200 });
@@ -67,11 +67,11 @@ const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
   // Get color based on current score
   const lineColor = getScoreColor(currentScore);
 
-  // Format timestamp for tooltip
-  const formatTime = (timestamp) => {
-    return new Date(timestamp).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit'
+  // Format date for x-axis labels (day/month)
+  const formatDate = (timestamp) => {
+    return new Date(timestamp).toLocaleDateString('en-US', {
+      month: 'numeric',
+      day: 'numeric'
     });
   };
 
@@ -133,12 +133,12 @@ const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
             />
             {/* Tooltip on hover */}
             <title>
-              {point.score.toFixed(1)} at {formatTime(point.timestamp)}
+              {point.score.toFixed(1)}
             </title>
           </g>
         ))}
 
-        {/* X-axis labels (show first and last timestamp) */}
+        {/* X-axis labels (show first and last date) */}
         {scoreHistory.length > 1 && (
           <g className="x-axis-labels">
             <text
@@ -148,7 +148,7 @@ const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
               className="text-xs fill-gray-500"
               style={{ fontSize: '10px' }}
             >
-              {formatTime(scoreHistory[0].timestamp)}
+              {formatDate(scoreHistory[0].timestamp)}
             </text>
             <text
               x={width - padding.right}
@@ -157,10 +157,11 @@ const TrendChart = ({ scoreHistory = [], currentScore = 0 }) => {
               className="text-xs fill-gray-500"
               style={{ fontSize: '10px' }}
             >
-              {formatTime(scoreHistory[scoreHistory.length - 1].timestamp)}
+              {formatDate(scoreHistory[scoreHistory.length - 1].timestamp)}
             </text>
           </g>
         )}
+
       </svg>
     </div>
   );
@@ -178,11 +179,6 @@ TrendChart.propTypes = {
     })
   ),
   currentScore: PropTypes.number,
-};
-
-TrendChart.defaultProps = {
-  scoreHistory: [],
-  currentScore: 0,
 };
 
 export default TrendChart;

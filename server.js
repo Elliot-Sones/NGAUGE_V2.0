@@ -20,6 +20,7 @@ import rateLimit from 'express-rate-limit';
 import { body, validationResult } from 'express-validator';
 import { google } from 'googleapis';
 import fs from 'fs';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -118,6 +119,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const SHEET_ID = process.env.VITE_GOOGLE_SHEET_ID;
 const CREDENTIALS_PATH = process.env.VITE_GOOGLE_CREDENTIALS_PATH;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+// Allow selecting which sheet tab to use for baseline values
+const BASELINE_SHEET_RANGE = process.env.VITE_GOOGLE_BASELINE_SHEET || 'Baseline';
 
 // Validate required environment variables on startup
 if (!SHEET_ID) {
@@ -299,6 +302,116 @@ app.get('/api/sheets', async (req, res) => {
 });
 
 /**
+ * GET /api/baseline
+ * Fetches baseline data from Google Sheets "Baseline" sheet
+ * Returns empty response if baseline sheet doesn't exist or is empty
+ * This is NOT an error condition - the app should gracefully handle missing baseline
+ *
+ * SECURITY:
+ * - Rate limited to prevent abuse
+ * - Credentials stored server-side only
+ * - Error messages sanitized in production
+ */
+app.get('/api/baseline', async (req, res) => {
+  try {
+    // Check if credentials file exists
+    if (!fs.existsSync(CREDENTIALS_PATH)) {
+      console.error('Credentials file not found:', CREDENTIALS_PATH);
+      return res.status(500).json({
+        error: 'Service configuration error',
+        message: NODE_ENV === 'development'
+          ? `Credentials file not found: ${CREDENTIALS_PATH}`
+          : 'Service is not properly configured'
+      });
+    }
+
+    // Read and parse credentials
+    const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+
+    // Create auth client
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+
+    const authClient = await auth.getClient();
+
+    // Create sheets API instance
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    // Fetch baseline data with timeout protection
+    const response = await Promise.race([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: BASELINE_SHEET_RANGE,
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Google Sheets API timeout')), API_TIMEOUT)
+      )
+    ]);
+
+    const data = response.data.values;
+
+    // If no data or empty, return success with empty values
+    // This is NOT an error - baseline is optional
+    if (!data || data.length === 0) {
+      return res.json({
+        success: true,
+        hasBaseline: false,
+        values: [],
+        rowCount: 0,
+        columnCount: 0,
+        timestamp: new Date().toISOString(),
+        message: 'No baseline data found - this is expected if baseline has not been set'
+      });
+    }
+
+    // Return the baseline data
+    res.json({
+      success: true,
+      hasBaseline: true,
+      values: data,
+      rowCount: data.length,
+      columnCount: data[0]?.length || 0,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error fetching baseline data:', error);
+
+    // If the error is because the "Baseline" sheet doesn't exist, return empty (not an error)
+    if (error.message?.includes('Unable to parse range') ||
+        error.code === 400 ||
+        error.message?.includes('not found')) {
+      return res.json({
+        success: true,
+        hasBaseline: false,
+        values: [],
+        rowCount: 0,
+        columnCount: 0,
+        timestamp: new Date().toISOString(),
+        message: 'Baseline sheet does not exist - this is expected if baseline has not been set'
+      });
+    }
+
+    // For real errors (auth, network, etc.), return 500
+    const statusCode = error.code === 403 ? 403 : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      hasBaseline: false,
+      error: 'Failed to fetch baseline data',
+      ...(NODE_ENV === 'development' ? {
+        message: error.message,
+        code: error.code
+      } : {
+        message: 'Unable to retrieve baseline data from the source'
+      })
+    });
+  }
+});
+
+/**
  * POST /api/analyze
  * Sends prompt to Gemini API for team analysis
  * Supports multiple analysis types with different configurations
@@ -419,6 +532,353 @@ app.get('/health', (req, res) => {
   });
 });
 
+// =============================================================================
+// AUTHENTICATION ENDPOINTS
+// =============================================================================
+
+/**
+ * Session configuration
+ */
+const SESSION_EXPIRY_DAYS = parseInt(process.env.SESSION_EXPIRY_DAYS || '7', 10);
+const SESSION_EXPIRY_MS = SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * Get or generate session secret key
+ */
+function getSessionSecret() {
+  const secret = process.env.SESSION_SECRET_KEY;
+  if (secret) return secret;
+
+  // Auto-generate secret if not provided (not recommended for production)
+  console.warn('⚠️  SESSION_SECRET_KEY not set, using auto-generated secret');
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Generate signed session token
+ */
+function generateSessionToken() {
+  const secret = getSessionSecret();
+  const timestamp = Date.now();
+  const expiry = timestamp + SESSION_EXPIRY_MS;
+
+  // Create payload
+  const payload = `${timestamp}:${expiry}`;
+
+  // Sign with HMAC-SHA256
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+
+  // Combine payload + signature
+  const token = `${payload}:${signature}`;
+
+  // Base64 encode for cookie storage
+  return Buffer.from(token).toString('base64');
+}
+
+/**
+ * Verify session token signature and expiration
+ */
+function verifySessionToken(token) {
+  try {
+    if (!token || typeof token !== 'string') {
+      return { valid: false, error: 'No token provided' };
+    }
+
+    // Decode from base64
+    const decoded = Buffer.from(token, 'base64').toString('utf-8');
+
+    // Parse token: timestamp:expiry:signature
+    const parts = decoded.split(':');
+    if (parts.length !== 3) {
+      return { valid: false, error: 'Invalid token format' };
+    }
+
+    const [timestamp, expiry, providedSignature] = parts;
+
+    // Verify expiration
+    const now = Date.now();
+    const expiryTime = parseInt(expiry, 10);
+
+    if (isNaN(expiryTime) || now > expiryTime) {
+      return { valid: false, error: 'Token expired' };
+    }
+
+    // Re-compute signature
+    const secret = getSessionSecret();
+    const payload = `${timestamp}:${expiry}`;
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(payload)
+      .digest('hex');
+
+    // Constant-time comparison
+    const signaturesMatch = crypto.timingSafeEqual(
+      Buffer.from(providedSignature),
+      Buffer.from(expectedSignature)
+    );
+
+    if (!signaturesMatch) {
+      return { valid: false, error: 'Invalid signature' };
+    }
+
+    return {
+      valid: true,
+      expiresAt: expiryTime,
+      remainingTime: expiryTime - now
+    };
+
+  } catch (error) {
+    console.error('Error verifying token:', error);
+    return { valid: false, error: 'Verification failed' };
+  }
+}
+
+/**
+ * Constant-time string comparison (prevents timing attacks)
+ */
+function constantTimeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+
+  const aLen = Buffer.byteLength(a);
+  const bLen = Buffer.byteLength(b);
+
+  // Always compare full length to prevent early exit timing leak
+  const bufA = Buffer.alloc(Math.max(aLen, bLen), 0);
+  const bufB = Buffer.alloc(Math.max(aLen, bLen), 0);
+
+  bufA.write(a);
+  bufB.write(b);
+
+  return crypto.timingSafeEqual(bufA, bufB) && aLen === bLen;
+}
+
+/**
+ * Parse cookies from request header
+ */
+function parseCookies(cookieHeader) {
+  if (!cookieHeader) return {};
+
+  return cookieHeader.split(';').reduce((cookies, cookie) => {
+    const [name, ...rest] = cookie.trim().split('=');
+    if (name) {
+      cookies[name] = rest.join('=');
+    }
+    return cookies;
+  }, {});
+}
+
+/**
+ * In-memory rate limiting for auth endpoint
+ */
+const authRateLimitStore = new Map();
+const AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const AUTH_RATE_LIMIT_MAX_ATTEMPTS = 5;
+
+function checkAuthRateLimit(ip) {
+  const now = Date.now();
+  const record = authRateLimitStore.get(ip);
+
+  if (!record) {
+    authRateLimitStore.set(ip, { count: 1, resetAt: now + AUTH_RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, remainingAttempts: AUTH_RATE_LIMIT_MAX_ATTEMPTS - 1 };
+  }
+
+  // Reset if window expired
+  if (now > record.resetAt) {
+    authRateLimitStore.set(ip, { count: 1, resetAt: now + AUTH_RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, remainingAttempts: AUTH_RATE_LIMIT_MAX_ATTEMPTS - 1 };
+  }
+
+  // Check if exceeded
+  if (record.count >= AUTH_RATE_LIMIT_MAX_ATTEMPTS) {
+    const resetIn = Math.ceil((record.resetAt - now) / 1000 / 60); // minutes
+    return {
+      allowed: false,
+      remainingAttempts: 0,
+      resetIn
+    };
+  }
+
+  // Increment count
+  record.count++;
+  return {
+    allowed: true,
+    remainingAttempts: AUTH_RATE_LIMIT_MAX_ATTEMPTS - record.count
+  };
+}
+
+/**
+ * POST /api/auth/verify
+ * Verifies password and sets session cookie
+ */
+app.post('/api/auth/verify', [
+  body('password')
+    .notEmpty().withMessage('Password is required')
+    .isString().withMessage('Password must be a string')
+], (req, res) => {
+  // Check validation results
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array()
+    });
+  }
+
+  try {
+    // Get client IP for rate limiting
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+
+    // Check rate limit
+    const rateLimit = checkAuthRateLimit(ip);
+    if (!rateLimit.allowed) {
+      return res.status(429).json({
+        success: false,
+        error: 'Too many attempts',
+        message: `Please try again in ${rateLimit.resetIn} minutes`,
+        retryAfter: rateLimit.resetIn * 60 // seconds
+      });
+    }
+
+    const { password } = req.body;
+
+    // Get master password from environment
+    const masterPassword = process.env.NGAUGE_MASTER_PASSWORD;
+
+    if (!masterPassword) {
+      console.error('❌ NGAUGE_MASTER_PASSWORD not set in environment variables');
+      return res.status(500).json({
+        success: false,
+        error: 'Authentication service not configured'
+      });
+    }
+
+    // Verify password (constant-time comparison)
+    const isValid = constantTimeCompare(password, masterPassword);
+
+    if (!isValid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid password',
+        remainingAttempts: rateLimit.remainingAttempts
+      });
+    }
+
+    // Generate session token
+    const sessionToken = generateSessionToken();
+
+    // Set HTTP-only cookie
+    const cookieOptions = [
+      `ngauge_session=${sessionToken}`,
+      `Max-Age=${SESSION_EXPIRY_MS / 1000}`, // Convert to seconds
+      'Path=/',
+      'HttpOnly',
+      'SameSite=Strict'
+    ].join('; ');
+
+    res.setHeader('Set-Cookie', cookieOptions);
+
+    return res.json({
+      success: true,
+      message: 'Authentication successful',
+      expiresIn: SESSION_EXPIRY_MS
+    });
+
+  } catch (error) {
+    console.error('Error in auth verification:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Authentication failed',
+      message: NODE_ENV === 'development' ? error.message : 'An error occurred'
+    });
+  }
+});
+
+/**
+ * GET /api/auth/status
+ * Check if user has valid session
+ */
+app.get('/api/auth/status', (req, res) => {
+  try {
+    // Extract session token from cookies
+    const cookies = parseCookies(req.headers.cookie);
+    const sessionToken = cookies.ngauge_session;
+
+    if (!sessionToken) {
+      return res.json({
+        authenticated: false,
+        reason: 'No session cookie'
+      });
+    }
+
+    // Verify token
+    const verification = verifySessionToken(sessionToken);
+
+    if (!verification.valid) {
+      return res.json({
+        authenticated: false,
+        reason: verification.error
+      });
+    }
+
+    // Return success with expiration info
+    return res.json({
+      authenticated: true,
+      expiresAt: verification.expiresAt,
+      remainingTime: verification.remainingTime
+    });
+
+  } catch (error) {
+    console.error('Error checking auth status:', error);
+
+    return res.status(500).json({
+      authenticated: false,
+      error: 'Status check failed',
+      message: NODE_ENV === 'development' ? error.message : 'An error occurred'
+    });
+  }
+});
+
+/**
+ * POST /api/auth/logout
+ * Clear session cookie
+ */
+app.post('/api/auth/logout', (req, res) => {
+  try {
+    // Clear cookie by setting Max-Age to 0
+    const cookieOptions = [
+      'ngauge_session=',
+      'Max-Age=0',
+      'Path=/',
+      'HttpOnly',
+      'SameSite=Strict'
+    ].join('; ');
+
+    res.setHeader('Set-Cookie', cookieOptions);
+
+    return res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+
+  } catch (error) {
+    console.error('Error during logout:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Logout failed',
+      message: NODE_ENV === 'development' ? error.message : 'An error occurred'
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`✅ Backend server running on http://localhost:${PORT}`);
   console.log(`📊 Sheet ID: ${SHEET_ID}`);
@@ -426,6 +886,10 @@ app.listen(PORT, () => {
   console.log();
   console.log(`API Endpoints:`);
   console.log(`  GET  http://localhost:${PORT}/api/sheets`);
+  console.log(`  GET  http://localhost:${PORT}/api/baseline`);
   console.log(`  POST http://localhost:${PORT}/api/analyze`);
+  console.log(`  POST http://localhost:${PORT}/api/auth/verify`);
+  console.log(`  GET  http://localhost:${PORT}/api/auth/status`);
+  console.log(`  POST http://localhost:${PORT}/api/auth/logout`);
   console.log(`  GET  http://localhost:${PORT}/health`);
 });

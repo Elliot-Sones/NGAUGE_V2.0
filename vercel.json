@@ -4,6 +4,18 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/auth/verify",
+      "destination": "/api/auth/verify"
+    },
+    {
+      "source": "/api/auth/status",
+      "destination": "/api/auth/status"
+    },
+    {
+      "source": "/api/auth/logout",
+      "destination": "/api/auth/logout"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },

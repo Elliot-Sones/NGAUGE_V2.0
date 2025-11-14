@@ -61,6 +61,152 @@ export async function fetchSheetData() {
 }
 
 /**
+ * Fetches baseline data from Google Sheets "Baseline" sheet
+ * Returns null if baseline sheet doesn't exist or is empty
+ *
+ * @returns {Promise<Object|null>} Baseline scores object or null
+ */
+export async function fetchBaselineData() {
+  try {
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
+    const url = `${backendUrl}/api/baseline`;
+
+    console.log('Fetching baseline data from backend API:', url);
+
+    const response = await fetch(url);
+
+    // Parse response body once
+    const data = await response.json();
+
+    // Check for errors in the response data
+    if (!response.ok) {
+      if (data.success === false) {
+        throw new Error(data.message || `API error: ${response.status}`);
+      }
+    }
+
+    // Check if baseline data exists
+    if (!data.hasBaseline || !data.values || data.values.length === 0) {
+      console.log('No baseline data found - will show weekly scores only');
+      return null;
+    }
+
+    console.log('Baseline data fetched successfully:', data.rowCount, 'rows');
+
+    // Transform baseline data into dimension scores
+    return transformBaselineData(data.values);
+
+  } catch (error) {
+    console.error('Error fetching baseline data:', error);
+    // Return null instead of throwing - missing baseline is not a fatal error
+    return null;
+  }
+}
+
+/**
+ * Transforms raw baseline sheet data into dimension scores object
+ *
+ * EXPECTED BASELINE SHEET FORMAT (Monthly template):
+ * Row 1: Headers
+ *   Column A: Player ID
+ *   Column B: Trust (Collective efficacy)
+ *   Column C: Alignment (Task Cohesion)
+ *   Column D: Role clarity
+ *   Column E: Connection (Trust between teammates)
+ *   Column F: Psychological safety
+ *   Column G: Overall moral/motivation
+ *   Column H: Communication quality
+ * Row 2+: Baseline player data
+ *
+ * @param {Array} rawData - 2D array from Google Sheets
+ * @returns {Object} Baseline scores by dimension name
+ */
+function transformBaselineData(rawData) {
+  if (!rawData || rawData.length < 2) {
+    console.log('Insufficient baseline data to transform (need at least 2 rows: header + data)');
+    return null;
+  }
+
+  // Skip headers row, get player data
+  const playerRows = rawData.slice(1);
+
+  // Extra validation: ensure we have actual data rows
+  if (playerRows.length === 0) {
+    console.log('No baseline data rows found (only headers present)');
+    return null;
+  }
+
+  console.log(`Processing baseline data: ${playerRows.length} players`);
+
+  // Monthly template column mapping (0-indexed)
+  // Column A (0): Player ID - skip
+  // Column B (1): Trust (Collective efficacy)
+  // Column C (2): Alignment (Task Cohesion)
+  // Column D (3): Role clarity
+  // Column E (4): Connection (Trust between teammates)
+  // Column F (5): Psychological safety
+  // Column G (6): Overall moral/motivation (Energy/Motivation)
+  // Column H (7): Communication quality
+
+  const columnMapping = {
+    'Collective Efficacy': 1,      // Column B
+    'Task Cohesion': 2,            // Column C
+    'Role Clarity': 3,             // Column D
+    'Trust': 4,                    // Column E
+    'Psychological Safety': 5,     // Column F
+    'Energy/Motivation': 6,        // Column G
+    'Communication Quality': 7      // Column H
+  };
+
+  const dimensionNames = [
+    'Collective Efficacy',
+    'Task Cohesion',
+    'Role Clarity',
+    'Trust',
+    'Psychological Safety',
+    'Communication Quality',
+    'Energy/Motivation'
+  ];
+
+  const baselineScores = {};
+
+  // Calculate average for each dimension across all baseline players
+  dimensionNames.forEach(dimensionName => {
+    const columnIndex = columnMapping[dimensionName];
+
+    const scores = playerRows
+      .map(row => {
+        const value = row[columnIndex];
+        const parsed = parseFloat(value);
+
+        // Convert 1-9 scale to 0-100 scale
+        if (!isNaN(parsed) && parsed >= 1 && parsed <= 9) {
+          return ((parsed - 1) / 8) * 100;
+        }
+
+        // If already in 0-100 range, keep it
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+          return parsed;
+        }
+
+        return null;
+      })
+      .filter(score => score !== null && !isNaN(score));
+
+    if (scores.length > 0) {
+      const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+      baselineScores[dimensionName] = average;
+    } else {
+      baselineScores[dimensionName] = 0;
+    }
+  });
+
+  console.log('Baseline scores calculated:', baselineScores);
+
+  return baselineScores;
+}
+
+/**
  * Transforms raw sheet data into structured player data
  *
  * EXPECTED SHEET FORMAT:
@@ -107,11 +253,11 @@ export function transformData(rawData) {
       const value = row[colIndex];
       const parsed = parseFloat(value);
 
-      // Convert 1-9 scale to 0-100 scale
-      // Formula: (score - 1) / (9 - 1) * 100 = (score - 1) / 8 * 100
-      // This makes 1 = 0%, 5 = 50%, 9 = 100%
-      if (!isNaN(parsed) && parsed >= 1 && parsed <= 9) {
-        return ((parsed - 1) / 8) * 100;
+      // Convert 1-7 scale to 0-100 scale
+      // Formula: (score - 1) / (7 - 1) * 100 = (score - 1) / 6 * 100
+      // This makes 1 = 0%, 4 = 50%, 7 = 100%
+      if (!isNaN(parsed) && parsed >= 1 && parsed <= 7) {
+        return ((parsed - 1) / 6) * 100;
       }
 
       // If already in 0-100 range, keep it

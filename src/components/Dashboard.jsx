@@ -21,7 +21,7 @@ import InsightsPanel from './InsightsPanel';
 import TrendChart from './TrendChart';
 
 const Dashboard = () => {
-  const { data, loading, error, lastUpdated, refresh, scoreHistory } = useRealtimeData();
+  const { data, loading, error, lastUpdated, refresh, scoreHistory, dimensionHistory, baselineData, hasBaseline } = useRealtimeData();
 
   // Calculate team-level metrics
   const teamAverage = calculateTeamAverage(data);
@@ -33,35 +33,46 @@ const Dashboard = () => {
   const teamColor = getScoreColor(teamAverage);
 
   const dimensionAverages = React.useMemo(() => calculateDimensionAverages(data), [data]);
-  const previousDimensionAveragesRef = React.useRef([]);
 
   const dimensionsWithTrends = React.useMemo(() => {
-    const previousDimensions = previousDimensionAveragesRef.current;
+    // Get previous dimension data from history (if available)
+    const previousDimensions = dimensionHistory.length >= 2
+      ? dimensionHistory[dimensionHistory.length - 2].dimensions
+      : null;
 
     return dimensionAverages.map((dimension, index) => {
-      const previousAverage = previousDimensions[index]?.average ?? null;
+      const previousAverage = previousDimensions?.[index]?.average ?? null;
+      const currentAverage = dimension.average;
+
+      // Calculate numeric difference from previous refresh
+      const numericChange = previousAverage !== null
+        ? currentAverage - previousAverage
+        : null;
+
       return {
         ...dimension,
-        trend: calculateTrend(dimension.average, previousAverage)
+        trend: calculateTrend(currentAverage, previousAverage),
+        previousAverage,
+        numericChange
       };
     });
-  }, [dimensionAverages]);
-
-  React.useEffect(() => {
-    previousDimensionAveragesRef.current = dimensionAverages;
-  }, [dimensionAverages]);
+  }, [dimensionAverages, dimensionHistory]);
 
   // State for AI-generated content
-  const [insights, setInsights] = React.useState([]);
+  const [insights, setInsights] = React.useState({ summary: '', suggestions: [] });
   const [scoreExplanation, setScoreExplanation] = React.useState(null);
   const [insightsLoading, setInsightsLoading] = React.useState(false);
   const [explanationLoading, setExplanationLoading] = React.useState(false);
 
   // Calculate baseline average for score explanation
+  // Use database baseline if available, otherwise use hardcoded values
   const baselineAverage = React.useMemo(() => {
-    const baselineValues = Object.values(BASELINE_SCORES);
-    return baselineValues.reduce((sum, val) => sum + val, 0) / baselineValues.length;
-  }, []);
+    if (hasBaseline && baselineData) {
+      const baselineValues = Object.values(baselineData);
+      return baselineValues.reduce((sum, val) => sum + val, 0) / baselineValues.length;
+    }
+    return null; // No baseline available
+  }, [hasBaseline, baselineData]);
 
   // Calculate overall average from score history
   const overallAverage = React.useMemo(() => {
@@ -75,11 +86,13 @@ const Dashboard = () => {
     if (data.length > 0) {
       setExplanationLoading(true);
       try {
-        const difference = teamAverage - baselineAverage;
+        // Calculate difference if baseline exists
+        const difference = hasBaseline ? teamAverage - baselineAverage : null;
+
         const explanation = await generateScoreExplanation(
           teamAverage,
-          baselineAverage,
-          difference,
+          baselineAverage, // Will be null if no baseline
+          difference,      // Will be null if no baseline
           overallAverage
         );
         setScoreExplanation(explanation);
@@ -98,9 +111,10 @@ const Dashboard = () => {
       setInsightsLoading(true);
       try {
         const aiInsights = await analyzeTeamInsights(data, teamAverage);
-        setInsights(aiInsights);
+        setInsights(aiInsights); // Now returns { summary: '', suggestions: [] }
       } catch (error) {
         console.error('Failed to generate insights:', error);
+        setInsights({ summary: '', suggestions: [] }); // Reset to empty structure
       } finally {
         setInsightsLoading(false);
       }
@@ -322,7 +336,7 @@ const Dashboard = () => {
         </div>
 
         {/* Findings */}
-        <div className="mb-8">
+        <div className="mb-12 pb-12 border-b-2 border-gray-200">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900 uppercase tracking-tight">FINDINGS</h2>
             <button
@@ -347,35 +361,63 @@ const Dashboard = () => {
 
           {/* Column Headers - Hidden on mobile, shown on md+ */}
           <div className="hidden md:grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
-            <div className="grid grid-cols-[1fr,auto,auto] gap-3 sm:gap-6 px-3 items-center">
+            <div className={`grid ${hasBaseline ? 'grid-cols-[1fr,auto,auto]' : 'grid-cols-[1fr,auto]'} gap-3 sm:gap-6 px-3 items-center`}>
               <div className="text-xs font-bold text-gray-600 uppercase tracking-wider">Dimension</div>
               <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '80px' }}>Weekly</div>
-              <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '60px' }}>Baseline</div>
+              {hasBaseline && (
+                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '60px' }}>Baseline</div>
+              )}
             </div>
-            <div className="grid grid-cols-[1fr,auto,auto] gap-3 sm:gap-6 px-3 items-center">
+            <div className={`grid ${hasBaseline ? 'grid-cols-[1fr,auto,auto]' : 'grid-cols-[1fr,auto]'} gap-3 sm:gap-6 px-3 items-center`}>
               <div className="text-xs font-bold text-gray-600 uppercase tracking-wider">Dimension</div>
               <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '80px' }}>Weekly</div>
-              <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '60px' }}>Baseline</div>
+              {hasBaseline && (
+                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '60px' }}>Baseline</div>
+              )}
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {dimensionsWithTrends.map((dimension, index) => {
               const dimColor = getScoreColor(dimension.average);
-              const baselineScore = BASELINE_SCORES[dimension.name] || 0;
               const weeklyScore = dimension.average;
-              const difference = weeklyScore - baselineScore;
 
-              // Determine difference display
-              const diffDisplay = Math.abs(difference) < 0.5
-                ? '--'
-                : `${difference > 0 ? '+' : ''}${difference.toFixed(1)}`;
-              const diffColor = Math.abs(difference) < 0.5
-                ? '#6b7280'
-                : difference > 0 ? '#10b981' : '#ef4444';
-              const diffArrow = Math.abs(difference) < 0.5
-                ? ''
-                : difference > 0 ? '↑' : '↓';
+              // Get baseline score from database if available
+              const baselineScore = hasBaseline && baselineData
+                ? baselineData[dimension.name] || 0
+                : null;
+
+              // Calculate difference only if baseline exists
+              const difference = baselineScore !== null ? weeklyScore - baselineScore : null;
+
+              // ALWAYS show weekly trend (comparison to last refresh)
+              // Baseline column is separate and shows baseline value when available
+              let diffDisplay, diffColor, diffArrow;
+
+              if (dimension.trend && dimension.numericChange !== null) {
+                // Show numeric change and arrow
+                const change = dimension.numericChange;
+                const absChange = Math.abs(change);
+
+                if (absChange < 0.5) {
+                  // Negligible change
+                  diffDisplay = '--';
+                  diffColor = '#6b7280';
+                  diffArrow = '';
+                } else {
+                  // Significant change - show number + arrow
+                  diffDisplay = `${change > 0 ? '+' : ''}${change.toFixed(1)}`;
+                  diffColor = dimension.trend.color;
+                  diffArrow = dimension.trend.direction === 'up' ? '↑'
+                    : dimension.trend.direction === 'down' ? '↓'
+                    : '';
+                }
+              } else {
+                // No trend data yet (first load)
+                diffDisplay = null;
+                diffColor = null;
+                diffArrow = null;
+              }
 
               return (
                 <div
@@ -383,31 +425,36 @@ const Dashboard = () => {
                   className="bg-white border-l-4 rounded px-3 py-2.5 h-full"
                   style={{ borderLeftColor: dimColor }}
                 >
-                  <div className="grid grid-cols-[1fr,auto,auto] gap-3 sm:gap-6 items-center">
+                  <div className={`grid ${hasBaseline ? 'grid-cols-[1fr,auto,auto]' : 'grid-cols-[1fr,auto]'} gap-3 sm:gap-6 items-center`}>
                     {/* Dimension Name */}
                     <div className="font-semibold text-gray-900 text-xs sm:text-sm">
                       {dimension.name}
                     </div>
 
-                    {/* Weekly Score + Difference */}
+                    {/* Weekly Score + Weekly Trend */}
                     <div className="flex items-baseline gap-1 sm:gap-2 justify-end" style={{ minWidth: '70px' }}>
                       <span className="text-base sm:text-lg font-bold" style={{ color: dimColor }}>
                         {weeklyScore.toFixed(1)}
                       </span>
-                      <span
-                        className="text-xs sm:text-sm font-semibold"
-                        style={{ color: diffColor }}
-                      >
-                        {diffDisplay}{diffArrow}
-                      </span>
+                      {/* Show weekly trend (comparison to last refresh) */}
+                      {diffDisplay !== null && diffArrow !== null && (
+                        <span
+                          className="text-xs sm:text-sm font-semibold"
+                          style={{ color: diffColor }}
+                        >
+                          {diffDisplay}{diffArrow}
+                        </span>
+                      )}
                     </div>
 
-                    {/* Baseline Score */}
-                    <div className="text-right" style={{ minWidth: '50px' }}>
-                      <span className="text-base sm:text-lg font-bold text-gray-500">
-                        {baselineScore.toFixed(1)}
-                      </span>
-                    </div>
+                    {/* Baseline Score - Only show if baseline exists */}
+                    {hasBaseline && baselineScore !== null && (
+                      <div className="text-right" style={{ minWidth: '50px' }}>
+                        <span className="text-base sm:text-lg font-bold text-gray-500">
+                          {baselineScore.toFixed(1)}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -415,18 +462,19 @@ const Dashboard = () => {
           </div>
 
           {/* LLM Score Explanation Section */}
-          <div className="mt-6 bg-gray-50 border-2 border-gray-200 rounded-lg p-4 sm:p-6">
+          <div className="mt-6">
             <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-3 uppercase tracking-tight">
               Score Analysis
             </h3>
             {scoreExplanation ? (
-              <div className="text-sm sm:text-base text-gray-700 leading-relaxed whitespace-pre-line">
+              <div className="text-sm sm:text-base text-gray-900 leading-relaxed whitespace-pre-line">
                 {scoreExplanation}
               </div>
             ) : (
-              <p className="text-sm sm:text-base text-gray-500 italic">
-                Click "Explain Scores" to generate an AI-powered analysis of the variance between baseline and weekly scores,
-                and how this trend could impact your overall team chemistry average.
+              <p className="text-sm sm:text-base text-gray-900">
+                {hasBaseline
+                  ? "Click \"Explain Scores\" to generate an AI-powered analysis of the variance between baseline and weekly scores, and how this trend could impact your overall team chemistry average."
+                  : "Click \"Explain Scores\" to generate an AI-powered analysis of your weekly scores and overall team chemistry trends. (Note: No baseline data available for comparison)"}
               </p>
             )}
           </div>
@@ -435,7 +483,7 @@ const Dashboard = () => {
         {/* AI INSIGHTS PANEL */}
         <div className="mb-12">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 uppercase tracking-tight">AI-POWERED INSIGHTS</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 uppercase tracking-tight">THINGS TO LOOK OUT FOR</h2>
             <button
               onClick={refreshInsights}
               disabled={insightsLoading}
@@ -455,7 +503,20 @@ const Dashboard = () => {
               )}
             </button>
           </div>
-          <InsightsPanel insights={insights} />
+
+          {/* Player Notes Summary - styled like Score Analysis */}
+          {insights.summary && (
+            <div className="mb-6">
+              <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-3 uppercase tracking-tight">
+                Player Notes Summary
+              </h3>
+              <div className="text-sm sm:text-base text-gray-900 leading-relaxed whitespace-pre-line">
+                {insights.summary}
+              </div>
+            </div>
+          )}
+
+          <InsightsPanel suggestions={insights.suggestions} />
         </div>
 
       </main>

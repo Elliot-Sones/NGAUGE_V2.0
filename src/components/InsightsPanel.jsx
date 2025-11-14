@@ -1,82 +1,43 @@
 /**
  * InsightsPanel Component
  *
- * Displays reasons, findings, and things to look out for
- *
- * PLACEHOLDER STRUCTURE - Ready for your custom logic
- *
- * TO ADD YOUR INSIGHTS:
- * 1. Update generateInsights() in utils/calculations.js
- * 2. Return array of insight objects with your analysis
- * 3. This component will automatically display them
+ * Displays suggestions for progress based on AI analysis
  */
 
 import React from 'react';
 import PropTypes from 'prop-types';
 
-const InsightsPanel = ({ insights = [] }) => {
-  // Placeholder insights for demonstration
-  const defaultInsights = [
+const InsightsPanel = ({ suggestions = [] } = {}) => {
+  // Placeholder suggestions for demonstration
+  const defaultSuggestions = [
     {
-      type: 'info',
-      category: 'AI-Powered Insights',
-      message: 'Use the Generate Insights button in the Findings section to analyze team responses with AI',
-      recommendation: 'The AI will analyze open-ended Question 1 and Question 7 responses from your team to provide actionable insights'
+      topic: 'AI-Powered Insights',
+      suggestion: 'Use the Generate Insights button in the Things to Look Out For section to analyze team responses with AI. The AI will analyze open-ended Question 1 and Question 9 responses from your team to provide actionable suggestions.'
     }
   ];
 
-  const displayInsights = insights.length > 0 ? insights : defaultInsights;
-
-  // Color mapping for different insight types
-  const getTypeColor = (type) => {
-    switch (type) {
-      case 'positive':
-      case 'success':
-        return 'bg-green-50 border-green-200 text-green-800';
-      case 'warning':
-        return 'bg-orange-50 border-orange-200 text-orange-800';
-      case 'critical':
-        return 'bg-red-50 border-red-200 text-red-800';
-      case 'info':
-        return 'bg-blue-50 border-blue-200 text-blue-800';
-      case 'placeholder':
-        return 'bg-gray-50 border-gray-200 text-gray-600';
-      default:
-        return 'bg-gray-50 border-gray-200 text-gray-800';
-    }
-  };
+  const displaySuggestions = suggestions.length > 0 ? suggestions : defaultSuggestions;
 
   return (
     <div className="bg-white rounded-lg border-2 border-gray-200 p-4 sm:p-6 lg:p-8">
       <div className="mb-4 sm:mb-6">
         <h2 className="text-xl sm:text-2xl font-bold text-gray-900 uppercase tracking-tight">
-          Things to look out for
+          Suggestions for progress
         </h2>
       </div>
 
       <div className="space-y-4 sm:space-y-6">
-        {displayInsights.map((insight, index) => (
+        {displaySuggestions.map((item, index) => (
           <div
             key={index}
-            className={`p-4 sm:p-6 lg:p-7 rounded-lg border-l-4 transition-all duration-300 hover:shadow-md ${getTypeColor(insight.type)}`}
+            className="p-4 sm:p-6 lg:p-7 rounded-lg border-2 border-gray-200 bg-white hover:shadow-md transition-all duration-300"
           >
-            <div className="flex items-start gap-3 sm:gap-4">
-              <div className="flex-1">
-                <div className="font-bold text-base sm:text-lg lg:text-xl mb-2 sm:mb-3 uppercase tracking-wide">
-                  {insight.category}
-                </div>
-                <p className="text-sm sm:text-base lg:text-lg leading-relaxed mb-3 sm:mb-4">
-                  {insight.message}
-                </p>
-                {insight.recommendation && (
-                  <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-current border-opacity-20">
-                    <p className="text-xs sm:text-sm lg:text-base font-semibold opacity-90">
-                      → Recommendation: {insight.recommendation}
-                    </p>
-                  </div>
-                )}
-              </div>
+            <div className="font-bold text-base sm:text-lg lg:text-xl mb-2 sm:mb-3 uppercase tracking-wide text-gray-900">
+              {item.topic}
             </div>
+            <p className="text-sm sm:text-base lg:text-lg leading-relaxed text-gray-700">
+              → {item.suggestion}
+            </p>
           </div>
         ))}
       </div>
@@ -86,18 +47,12 @@ const InsightsPanel = ({ insights = [] }) => {
 };
 
 InsightsPanel.propTypes = {
-  insights: PropTypes.arrayOf(
+  suggestions: PropTypes.arrayOf(
     PropTypes.shape({
-      type: PropTypes.oneOf(['positive', 'success', 'warning', 'critical', 'info', 'placeholder']).isRequired,
-      category: PropTypes.string.isRequired,
-      message: PropTypes.string.isRequired,
-      recommendation: PropTypes.string,
+      topic: PropTypes.string.isRequired,
+      suggestion: PropTypes.string.isRequired,
     })
   ),
-};
-
-InsightsPanel.defaultProps = {
-  insights: [],
 };
 
 export default InsightsPanel;
