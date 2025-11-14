@@ -340,6 +340,79 @@ function getMockData() {
 }
 
 /**
+ * Fetches stored AI insights from Google Sheets
+ * @returns {Promise<Object>} Object with hasInsights, scoreExplanation, and insights
+ */
+export async function fetchStoredInsights() {
+  try {
+    const backendUrl = import.meta.env.VITE_BACKEND_URL !== undefined
+      ? import.meta.env.VITE_BACKEND_URL
+      : (import.meta.env.DEV ? 'http://localhost:3002' : '');
+    const url = `${backendUrl}/api/insights`;
+
+    console.log('Fetching stored insights from backend API:', url);
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('Stored insights fetched:', data.hasInsights ? 'Found' : 'Not found');
+
+    return data;
+
+  } catch (error) {
+    console.error('Error fetching stored insights:', error);
+    // Return empty insights on error
+    return {
+      hasInsights: false,
+      scoreExplanation: null,
+      insights: { summary: '', suggestions: [] }
+    };
+  }
+}
+
+/**
+ * Saves AI insights to Google Sheets
+ * @param {string|null} scoreExplanation - Score explanation text
+ * @param {Object} insights - Insights object with summary and suggestions
+ * @returns {Promise<boolean>} Success status
+ */
+export async function saveInsights(scoreExplanation, insights) {
+  try {
+    const backendUrl = import.meta.env.VITE_BACKEND_URL !== undefined
+      ? import.meta.env.VITE_BACKEND_URL
+      : (import.meta.env.DEV ? 'http://localhost:3002' : '');
+    const url = `${backendUrl}/api/insights`;
+
+    console.log('Saving insights to backend API:', url);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ scoreExplanation, insights }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+
+    console.log('Insights saved successfully');
+    return true;
+
+  } catch (error) {
+    console.error('Error saving insights:', error);
+    return false;
+  }
+}
+
+/**
  * FUTURE ENHANCEMENTS:
  *
  * 1. Add caching layer:

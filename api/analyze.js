@@ -21,12 +21,12 @@ const ANALYSIS_CONFIGS = {
   'score-explanation': {
     model: 'gemini-2.5-flash',
     temperature: 0.5,
-    maxOutputTokens: 1800,  // Increased for 3-4 sentence diagnostic depth
+    maxOutputTokens: 600,  // Reduced for brief 2-sentence analysis
   },
   'team-insights': {
     model: 'gemini-2.5-flash',
-    temperature: 0.6,  // Balanced for diagnostic focus with evidence-based insights
-    maxOutputTokens: 8192,  // Increased to prevent MAX_TOKENS cutoff (gemini-2.5-flash supports up to 8192)
+    temperature: 0.6,
+    maxOutputTokens: 1500,  // Reduced for concise insights (2-3 sentences + brief suggestions)
   }
 };
 

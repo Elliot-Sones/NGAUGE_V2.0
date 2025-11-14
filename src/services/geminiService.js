@@ -83,63 +83,38 @@ export async function generateScoreExplanation(weeklyScore, baselineScore, diffe
 function buildScoreExplanationPrompt(weeklyScore, baselineScore, difference, overallAverage) {
   // If baseline is not available, generate a different prompt
   if (baselineScore === null || difference === null) {
-    return `You are an expert sports psychologist specializing in team dynamics and group cohesion. Your role is to help coaches understand team chemistry patterns through evidence-based analysis.
+    return `You are an expert sports psychologist. Provide a brief 2-sentence analysis.
 
-**Current Data:**
-- Weekly Team Chemistry Score: ${weeklyScore.toFixed(2)}
-- Overall Season Average: ${overallAverage.toFixed(2)}
+**Data:**
+- Weekly Score: ${weeklyScore.toFixed(2)}
+- Season Average: ${overallAverage.toFixed(2)}
 
-**Your Expertise:**
-Apply principles from Carron's Group Environment Questionnaire and Tuckman's team development model to interpret this data.
+**Task:**
+Write exactly 2 concise sentences:
+1. Diagnose the team's cohesion level and key psychological factor (e.g., role clarity, trust, collective efficacy)
+2. Compare to season average and state what this trend indicates
 
-**Analysis Task:**
-Provide a concise 3-4 sentence diagnostic analysis that:
-1. Identifies what this score reveals about the team's current cohesion level (forming, storming, norming, or performing stage)
-2. Compares the weekly score to the season average and diagnoses the underlying team dynamic this suggests
-3. Pinpoints the most likely psychological factor at play (e.g., collective efficacy, task cohesion, role ambiguity, trust deficit)
-4. Offers one evidence-based insight about what this pattern typically indicates in high-performing teams
-
-**Analytical Framework:**
-- Use diagnostic language that identifies root patterns, not just symptoms
-- Reference psychological mechanisms (e.g., "This suggests role ambiguity affecting task cohesion" vs. "communication needs work")
-- Connect numerical data to established team development theory
-- Maintain professional objectivity—avoid overly positive or negative framing
-
-**Output:**
-Provide your analysis as plain text (no JSON formatting needed). Be direct and insightful without unnecessary qualifiers.`;
+Be direct and specific. No JSON formatting.`;
   }
 
   // Standard prompt with baseline comparison
   const percentChange = baselineScore !== 0 ? ((difference / baselineScore) * 100).toFixed(1) : 0;
   const trend = difference > 0 ? 'increased' : difference < 0 ? 'decreased' : 'remained stable';
 
-  return `You are an expert sports psychologist specializing in team dynamics and group cohesion. Your role is to help coaches understand team chemistry patterns through evidence-based analysis.
+  return `You are an expert sports psychologist. Provide a brief 2-sentence analysis.
 
-**Current Data:**
-- Weekly Team Chemistry Score: ${weeklyScore.toFixed(2)}
-- Baseline Score: ${baselineScore.toFixed(2)}
+**Data:**
+- Weekly Score: ${weeklyScore.toFixed(2)}
+- Baseline: ${baselineScore.toFixed(2)}
 - Change: ${difference >= 0 ? '+' : ''}${difference.toFixed(2)} (${percentChange}%)
-- Overall Season Average: ${overallAverage.toFixed(2)}
-- Trend Direction: ${trend}
+- Trend: ${trend}
 
-**Your Expertise:**
-Apply principles from Carron's Group Environment Questionnaire, Tuckman's team development model, and cohesion research to interpret this variance.
+**Task:**
+Write exactly 2 concise sentences:
+1. Diagnose the significance of this ${Math.abs(percentChange)}% change and the underlying mechanism (e.g., role clarity, trust, collective efficacy)
+2. State whether this is normal fluctuation (<5%) or meaningful shift (>5%) and what it indicates
 
-**Analysis Task:**
-Provide a concise 3-4 sentence diagnostic analysis that:
-1. Diagnoses the psychological significance of this ${Math.abs(percentChange)}% change in team chemistry
-2. Identifies the most likely underlying mechanism driving this shift (e.g., role transitions, trust building/erosion, collective efficacy changes, or environmental stressors)
-3. Contextualizes whether this variance falls within normal developmental fluctuation or signals a meaningful team dynamic shift
-4. Connects this pattern to established research on team cohesion trajectories
-
-**Analytical Framework:**
-- Use diagnostic language that identifies root psychological patterns, not just symptoms
-- Reference specific team dynamics mechanisms (e.g., "This shift likely reflects increased role clarity enhancing task cohesion" vs. "team is improving")
-- Apply research-backed thresholds: <5% = minor fluctuation, 5-10% = notable shift, >10% = significant change
-- Maintain professional objectivity—focus on what the data reveals, not what the coach wants to hear
-
-**Output:**
-Provide your analysis as plain text (no JSON formatting needed). Be direct and insightful without unnecessary qualifiers.`;
+Be direct and specific. No JSON formatting.`;
 }
 
 // =============================================================================
@@ -190,23 +165,16 @@ export async function analyzeTeamInsights(players, overallScore) {
  * @private
  */
 function buildTeamInsightsPrompt(question1Responses, question7Responses, overallScore) {
-  let prompt = `You are an expert sports psychologist specializing in team dynamics and group cohesion analysis. Your role is to help coaches diagnose underlying team chemistry patterns from player feedback.
+  let prompt = `You are an expert sports psychologist. Analyze player feedback and provide brief, actionable insights.
 
-**Overall Team Chemistry Score:** ${overallScore ? overallScore.toFixed(2) : 'N/A'}
+**Team Score:** ${overallScore ? overallScore.toFixed(2) : 'N/A'}
 
-**Psychological Framework:**
-Apply Carron's Group Dynamics Model (task cohesion, social cohesion, individual attractions to group) and assess team functioning across these research-validated dimensions:
-- Collective Efficacy (team's shared belief in capability)
-- Task Cohesion (alignment toward common goals)
-- Role Clarity (understanding of responsibilities)
-- Trust & Psychological Safety (interpersonal security)
-- Communication Quality (information flow effectiveness)
-- Energy/Motivation (team drive and resilience)
+**Focus Areas:** Collective Efficacy, Task Cohesion, Role Clarity, Trust, Psychological Safety, Communication, Energy/Motivation
 
 `;
 
   if (question1Responses.length > 0) {
-    prompt += `**Question 1 Responses (How do you feel the week went?):**\n`;
+    prompt += `**How the week went:**\n`;
     question1Responses.forEach(response => {
       prompt += `- ${response}\n`;
     });
@@ -214,56 +182,34 @@ Apply Carron's Group Dynamics Model (task cohesion, social cohesion, individual 
   }
 
   if (question7Responses.length > 0) {
-    prompt += `**Question 9 Responses (Additional comments):**\n`;
+    prompt += `**Additional comments:**\n`;
     question7Responses.forEach(response => {
       prompt += `- ${response}\n`;
     });
     prompt += `\n`;
   }
 
-  prompt += `**Diagnostic Analysis Task:**
+  prompt += `**Task:**
 
-1. **Pattern Identification (playerNotesSummary):**
-   - Write 3-4 sentences identifying the core psychological patterns emerging from responses
-   - Diagnose which of the 6 team chemistry dimensions show strength or concern
-   - Connect player language to underlying team dynamic mechanisms (e.g., "References to 'confusion about plays' suggest role clarity issues affecting task cohesion")
-   - Note psychological climate indicators (e.g., defensive language = low psychological safety, "we" vs "I" language = collective identity strength)
+1. **playerNotesSummary:** Write 2-3 SHORT sentences identifying key patterns and which dimensions need attention
 
-2. **Diagnostic Recommendations (suggestions):**
-   - Provide 1-2 targeted interventions based on identified patterns
-   - Each suggestion must:
-     * Target a specific diagnosed dimension (e.g., "Role Clarity," "Psychological Safety," "Task Cohesion")
-     * Offer an evidence-based intervention tied to the diagnosis
-     * Be implementable within normal coaching operations
-   - Prioritize interventions by impact potential—address root causes, not symptoms
+2. **suggestions:** Provide 1-2 specific, actionable recommendations
+   - Format: {"topic": "Dimension name", "suggestion": "Brief action to address the issue"}
+   - Keep suggestions under 25 words each
+   - Be specific and practical
 
 **Response Format (JSON):**
 {
-  "playerNotesSummary": "3-4 sentence diagnostic summary identifying core patterns and mechanisms",
+  "playerNotesSummary": "2-3 brief sentences on patterns and dimensions",
   "suggestions": [
     {
-      "topic": "Specific team chemistry dimension diagnosed (e.g., Role Clarity, Trust, Communication Quality)",
-      "suggestion": "Evidence-based intervention tied directly to the diagnosed pattern. Format: 'Consider [specific action] to address [diagnosed mechanism], which research shows [expected outcome].'"
+      "topic": "Dimension name",
+      "suggestion": "Brief specific action under 25 words"
     }
   ]
 }
 
-**Analytical Standards:**
-- Be diagnostic, not descriptive—identify WHY patterns exist, not just WHAT was said
-- Use precise psychological terminology (e.g., "role ambiguity," "trust deficit," "collective efficacy gap")
-- Connect observations to team chemistry dimensions explicitly
-- Avoid generic advice—tie every suggestion to specific evidence from responses
-- Maintain professional objectivity—diagnose accurately even if findings are uncomfortable
-- Focus on actionable psychological mechanisms coaches can influence
-
-**Quality Criteria:**
-✓ Diagnosis reveals underlying team dynamic mechanisms
-✓ Suggestions target root psychological factors, not surface symptoms
-✓ Language is professional but accessible (no academic jargon overload)
-✓ Insights are specific to THIS team's responses (not generic team advice)
-✓ Recommendations are practical for coaching contexts
-
-Return ONLY the JSON object, no additional text.`;
+Be concise and actionable. Return ONLY the JSON object.`;
 
   return prompt;
 }

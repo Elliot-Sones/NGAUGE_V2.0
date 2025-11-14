@@ -412,6 +412,208 @@ app.get('/api/baseline', async (req, res) => {
 });
 
 /**
+ * GET /api/insights
+ * Fetches stored AI insights from Google Sheets "AIInsights" sheet
+ */
+app.get('/api/insights', async (req, res) => {
+  try {
+    if (!fs.existsSync(CREDENTIALS_PATH)) {
+      return res.status(500).json({
+        success: false,
+        error: 'Service configuration error'
+      });
+    }
+
+    const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    // Try to fetch insights from AIInsights sheet
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'AIInsights!A:C',
+      });
+
+      const data = response.data.values;
+
+      if (!data || data.length <= 1) {
+        // No data or only headers
+        return res.json({
+          success: true,
+          hasInsights: false,
+          scoreExplanation: null,
+          insights: { summary: '', suggestions: [] },
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Parse insights
+      const rows = data.slice(1);
+      let scoreExplanation = null;
+      let summary = '';
+      const suggestions = [];
+
+      rows.forEach(row => {
+        const type = row[0];
+        const content = row[1];
+
+        if (type === 'score_explanation') {
+          scoreExplanation = content || null;
+        } else if (type === 'team_insights_summary') {
+          summary = content || '';
+        } else if (type && type.startsWith('team_insights_suggestion_')) {
+          try {
+            const suggestion = JSON.parse(content);
+            suggestions.push(suggestion);
+          } catch (e) {
+            console.error('Error parsing suggestion:', e);
+          }
+        }
+      });
+
+      return res.json({
+        success: true,
+        hasInsights: true,
+        scoreExplanation,
+        insights: { summary, suggestions },
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      // Sheet doesn't exist - return empty insights
+      if (error.code === 400 || error.message?.includes('Unable to parse range')) {
+        return res.json({
+          success: true,
+          hasInsights: false,
+          scoreExplanation: null,
+          insights: { summary: '', suggestions: [] },
+          timestamp: new Date().toISOString()
+        });
+      }
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('Error fetching insights:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch insights',
+      message: NODE_ENV === 'development' ? error.message : 'Unable to process your request'
+    });
+  }
+});
+
+/**
+ * POST /api/insights
+ * Saves AI insights to Google Sheets "AIInsights" sheet
+ */
+app.post('/api/insights', async (req, res) => {
+  try {
+    const { scoreExplanation, insights } = req.body;
+
+    if (!scoreExplanation && !insights) {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one of scoreExplanation or insights is required'
+      });
+    }
+
+    if (!fs.existsSync(CREDENTIALS_PATH)) {
+      return res.status(500).json({
+        success: false,
+        error: 'Service configuration error'
+      });
+    }
+
+    const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+
+    const authClient = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+    const timestamp = new Date().toISOString();
+    const rows = [
+      ['Type', 'Content', 'Timestamp']
+    ];
+
+    if (scoreExplanation) {
+      rows.push(['score_explanation', scoreExplanation, timestamp]);
+    }
+
+    if (insights && insights.summary) {
+      rows.push(['team_insights_summary', insights.summary, timestamp]);
+    }
+
+    if (insights && insights.suggestions && insights.suggestions.length > 0) {
+      insights.suggestions.forEach((suggestion, index) => {
+        rows.push([
+          `team_insights_suggestion_${index}`,
+          JSON.stringify(suggestion),
+          timestamp
+        ]);
+      });
+    }
+
+    // Try to clear existing data first
+    try {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: SHEET_ID,
+        range: 'AIInsights!A:C',
+      });
+    } catch (error) {
+      // If sheet doesn't exist, create it
+      if (error.code === 400) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID,
+          resource: {
+            requests: [{
+              addSheet: {
+                properties: {
+                  title: 'AIInsights'
+                }
+              }
+            }]
+          }
+        });
+      }
+    }
+
+    // Write new data
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'AIInsights!A1',
+      valueInputOption: 'RAW',
+      resource: {
+        values: rows
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Insights saved successfully',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error saving insights:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save insights',
+      message: NODE_ENV === 'development' ? error.message : 'Unable to process your request'
+    });
+  }
+});
+
+/**
  * POST /api/analyze
  * Sends prompt to Gemini API for team analysis
  * Supports multiple analysis types with different configurations
@@ -887,6 +1089,8 @@ app.listen(PORT, () => {
   console.log(`API Endpoints:`);
   console.log(`  GET  http://localhost:${PORT}/api/sheets`);
   console.log(`  GET  http://localhost:${PORT}/api/baseline`);
+  console.log(`  GET  http://localhost:${PORT}/api/insights`);
+  console.log(`  POST http://localhost:${PORT}/api/insights`);
   console.log(`  POST http://localhost:${PORT}/api/analyze`);
   console.log(`  POST http://localhost:${PORT}/api/auth/verify`);
   console.log(`  GET  http://localhost:${PORT}/api/auth/status`);
