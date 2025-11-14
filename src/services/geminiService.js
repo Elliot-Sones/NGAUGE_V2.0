@@ -12,7 +12,11 @@
  * @private
  */
 async function callGeminiAPI(prompt, type = 'team-insights') {
-  const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
+  // In production (Vercel), VITE_BACKEND_URL should be empty to use relative URLs
+  // In development, it should be 'http://localhost:3002'
+  const backendUrl = import.meta.env.VITE_BACKEND_URL !== undefined
+    ? import.meta.env.VITE_BACKEND_URL
+    : (import.meta.env.DEV ? 'http://localhost:3002' : '');
 
   const response = await fetch(`${backendUrl}/api/analyze`, {
     method: 'POST',

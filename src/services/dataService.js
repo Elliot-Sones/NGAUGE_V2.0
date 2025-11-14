@@ -32,7 +32,11 @@ import { GOOGLE_SHEET_ID } from '../config/constants.js';
 export async function fetchSheetData() {
   try {
     // Using backend API proxy with service account authentication
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
+    // In production (Vercel), VITE_BACKEND_URL should be empty to use relative URLs
+    // In development, it should be 'http://localhost:3002'
+    const backendUrl = import.meta.env.VITE_BACKEND_URL !== undefined
+      ? import.meta.env.VITE_BACKEND_URL
+      : (import.meta.env.DEV ? 'http://localhost:3002' : '');
     const url = `${backendUrl}/api/sheets`;
 
     console.log('Fetching data from backend API:', url);
@@ -68,7 +72,11 @@ export async function fetchSheetData() {
  */
 export async function fetchBaselineData() {
   try {
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
+    // In production (Vercel), VITE_BACKEND_URL should be empty to use relative URLs
+    // In development, it should be 'http://localhost:3002'
+    const backendUrl = import.meta.env.VITE_BACKEND_URL !== undefined
+      ? import.meta.env.VITE_BACKEND_URL
+      : (import.meta.env.DEV ? 'http://localhost:3002' : '');
     const url = `${backendUrl}/api/baseline`;
 
     console.log('Fetching baseline data from backend API:', url);
