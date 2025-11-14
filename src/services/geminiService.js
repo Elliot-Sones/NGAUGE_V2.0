@@ -28,6 +28,11 @@ async function callGeminiAPI(prompt, type = 'team-insights') {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
+    console.error('Backend API error:', {
+      status: response.status,
+      statusText: response.statusText,
+      errorData
+    });
     throw new Error(errorData.message || `API error: ${response.status}`);
   }
 
