@@ -145,14 +145,14 @@ const ANALYSIS_CONFIGS = {
   'score-explanation': {
     model: 'gemini-2.5-flash',
     temperature: 0.5,  // More deterministic for numerical explanations
-    maxOutputTokens: 1500,
-    description: 'LLM explanation of score variance and trends'
+    maxOutputTokens: 1800,  // Increased for 3-4 sentence diagnostic depth
+    description: 'Expert sports psychology analysis of score variance and trends'
   },
   'team-insights': {
     model: 'gemini-2.5-flash',
-    temperature: 0.7,  // More creative for qualitative insights
+    temperature: 0.6,  // Balanced for diagnostic focus with evidence-based insights
     maxOutputTokens: 2048,
-    description: 'AI-powered team chemistry insights'
+    description: 'Expert sports psychology team chemistry diagnostics'
   }
 };
 
