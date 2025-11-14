@@ -262,9 +262,19 @@ Return ONLY the JSON object, no additional text.`;
  * @private
  */
 function parseInsights(analysisText) {
+  // First, try to extract JSON from markdown code blocks (most common case with Gemini)
+  const jsonMatch = analysisText.match(/```json\s*([\s\S]*?)\s*```/) ||
+                    analysisText.match(/```\s*([\s\S]*?)\s*```/);
+
+  let textToParse = analysisText;
+
+  if (jsonMatch) {
+    textToParse = jsonMatch[1].trim();
+  }
+
   try {
     // Try to parse as JSON
-    const parsed = JSON.parse(analysisText);
+    const parsed = JSON.parse(textToParse);
 
     // Return the new structure with summary and suggestions
     if (parsed.playerNotesSummary !== undefined && parsed.suggestions && Array.isArray(parsed.suggestions)) {
@@ -280,23 +290,7 @@ function parseInsights(analysisText) {
 
   } catch (error) {
     console.error('Error parsing insights:', error);
-
-    // Fallback: try to extract JSON from markdown code blocks
-    const jsonMatch = analysisText.match(/```json\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[1]);
-        if (parsed.playerNotesSummary !== undefined && parsed.suggestions && Array.isArray(parsed.suggestions)) {
-          return {
-            summary: parsed.playerNotesSummary || '',
-            suggestions: parsed.suggestions
-          };
-        }
-      } catch (e) {
-        console.error('Failed to parse JSON from markdown:', e);
-      }
-    }
-
+    console.error('Raw response:', analysisText);
     return { summary: '', suggestions: [] };
   }
 }
