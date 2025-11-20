@@ -6,10 +6,8 @@
  * - POST: Saves new insights to "AIInsights" sheet
  *
  * SHEET STRUCTURE (AIInsights):
- * Row 1: Headers [Type, Content, Timestamp]
- * Row 2: score_explanation, <text>, <timestamp>
- * Row 3: team_insights_summary, <text>, <timestamp>
- * Row 4+: team_insights_suggestion_N, <json>, <timestamp>
+ * Row 1: Headers [Timestamp | Game Result | Your Score | Opponent Score | Practice Performance (1-10) | Score Explanation | Team Insights Summary]
+ * Row 2+: Data rows with game info and AI analysis (one row per analysis)
  */
 
 import { google } from 'googleapis';
@@ -57,7 +55,7 @@ async function fetchInsights(sheets, sheetId) {
     const response = await Promise.race([
       sheets.spreadsheets.values.get({
         spreadsheetId: sheetId,
-        range: 'AIInsights!A:C',
+        range: 'AIInsights!A:G',  // Read all 7 columns
       }),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Google Sheets API timeout')), API_TIMEOUT)
@@ -76,33 +74,19 @@ async function fetchInsights(sheets, sheetId) {
     }
 
     // Parse the stored insights
+    // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Team Insights Summary
     const rows = data.slice(1); // Skip headers
-    let scoreExplanation = null;
-    let summary = '';
-    const suggestions = [];
 
-    rows.forEach(row => {
-      const type = row[0];
-      const content = row[1];
+    // Get the most recent row (last row in the sheet)
+    const latestRow = rows[rows.length - 1];
 
-      if (type === 'score_explanation') {
-        scoreExplanation = content || null;
-      } else if (type === 'team_insights_summary') {
-        summary = content || '';
-      } else if (type && type.startsWith('team_insights_suggestion_')) {
-        try {
-          const suggestion = JSON.parse(content);
-          suggestions.push(suggestion);
-        } catch (e) {
-          console.error('Error parsing suggestion:', e);
-        }
-      }
-    });
+    const scoreExplanation = latestRow[5] || null;  // Column F
+    const summary = latestRow[6] || '';              // Column G
 
     return {
-      hasInsights: true,
+      hasInsights: !!(scoreExplanation || summary),
       scoreExplanation,
-      insights: { summary, suggestions }
+      insights: { summary, suggestions: [] }
     };
 
   } catch (error) {
@@ -121,44 +105,42 @@ async function fetchInsights(sheets, sheetId) {
 /**
  * Save insights to Google Sheets
  */
-async function saveInsights(sheets, sheetId, scoreExplanation, insights) {
+async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInfo) {
   const timestamp = new Date().toISOString();
 
-  // Prepare rows to write
-  const rows = [
-    ['Type', 'Content', 'Timestamp'] // Headers
-  ];
+  console.log('🔥🔥🔥 NEW CODE RUNNING - saveInsights function called with:', {
+    timestamp,
+    gameInfo,
+    scoreExplanationLength: scoreExplanation?.length || 0,
+    hasInsights: !!insights
+  });
 
-  // Add score explanation
-  if (scoreExplanation) {
-    rows.push(['score_explanation', scoreExplanation, timestamp]);
-  }
+  // Check current sheet structure
+  let currentHeaders = null;
+  let needsMigration = false;
 
-  // Add team insights summary
-  if (insights.summary) {
-    rows.push(['team_insights_summary', insights.summary, timestamp]);
-  }
-
-  // Add suggestions
-  if (insights.suggestions && insights.suggestions.length > 0) {
-    insights.suggestions.forEach((suggestion, index) => {
-      rows.push([
-        `team_insights_suggestion_${index}`,
-        JSON.stringify(suggestion),
-        timestamp
-      ]);
-    });
-  }
-
-  // First, try to clear existing data
   try {
-    await sheets.spreadsheets.values.clear({
+    const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'AIInsights!A:C',
+      range: 'AIInsights!A1:G1',
     });
+    currentHeaders = response.data.values?.[0] || null;
+
+    // Check if we have the correct format
+    const expectedFirstColumn = 'Timestamp';
+    if (currentHeaders && currentHeaders[0] !== expectedFirstColumn) {
+      console.log('📋 Detected old format (first column: "' + currentHeaders[0] + '"), migrating to new format...');
+      needsMigration = true;
+    } else if (currentHeaders && currentHeaders.length === 7 && currentHeaders[0] === expectedFirstColumn) {
+      console.log('📋 Sheet already has correct 7-column format');
+    } else {
+      // Headers exist but incomplete
+      needsMigration = true;
+    }
   } catch (error) {
-    // If sheet doesn't exist, create it
+    // Sheet doesn't exist
     if (error.code === 400) {
+      console.log('⚠️ Sheet does not exist, creating with 7-column format...');
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: sheetId,
         resource: {
@@ -174,15 +156,59 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights) {
     }
   }
 
-  // Write new data
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: sheetId,
-    range: 'AIInsights!A1',
-    valueInputOption: 'RAW',
-    resource: {
-      values: rows
-    }
-  });
+  // If we need to migrate or create new headers
+  if (!currentHeaders || needsMigration) {
+    console.log('📝 Adding/updating headers to 7-column format...');
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: 'AIInsights!A1',
+      valueInputOption: 'RAW',
+      resource: {
+        values: [[
+          'Timestamp',
+          'Game Result',
+          'Your Score',
+          'Opponent Score',
+          'Practice Performance (1-10)',
+          'Score Explanation',
+          'Team Insights Summary'
+        ]]
+      }
+    });
+    console.log('✅ Headers updated to 7-column format');
+  }
+
+  // Prepare rows to write - each analysis creates ONE row with all data
+  const rows = [];
+
+  // Create a single row with timestamp, game info, and both AI analyses
+  const row = [
+    timestamp,
+    gameInfo && !gameInfo.skipped ? gameInfo.result : 'N/A',
+    gameInfo && !gameInfo.skipped ? gameInfo.yourScore : 'N/A',
+    gameInfo && !gameInfo.skipped ? gameInfo.opponentScore : 'N/A',
+    gameInfo && !gameInfo.skipped ? gameInfo.practicePerformance : 'N/A',
+    scoreExplanation || '',
+    insights?.summary || ''
+  ];
+
+  rows.push(row);
+
+  console.log('🔥🔥🔥 NEW FORMAT - Prepared rows to append:', JSON.stringify(rows, null, 2));
+
+  // Append the rows
+  if (rows.length > 0) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: 'AIInsights!A:G',
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: {
+        values: rows
+      }
+    });
+    console.log('✅ Rows appended to sheet successfully');
+  }
 
   return { success: true };
 }
@@ -212,7 +238,14 @@ export default async function handler(req, res) {
 
     // POST: Save new insights
     if (req.method === 'POST') {
-      const { scoreExplanation, insights } = req.body;
+      const { scoreExplanation, insights, gameInfo } = req.body;
+
+      console.log('🔵 API /api/insights POST - Received request body:', {
+        hasScoreExplanation: !!scoreExplanation,
+        hasInsights: !!insights,
+        hasGameInfo: !!gameInfo,
+        gameInfo: gameInfo
+      });
 
       if (!scoreExplanation && !insights) {
         return res.status(400).json({
@@ -221,7 +254,9 @@ export default async function handler(req, res) {
         });
       }
 
-      await saveInsights(sheets, SHEET_ID, scoreExplanation, insights);
+      console.log('📝 Calling saveInsights with gameInfo:', gameInfo);
+      await saveInsights(sheets, SHEET_ID, scoreExplanation, insights, gameInfo);
+      console.log('✅ saveInsights completed');
 
       return res.status(200).json({
         success: true,

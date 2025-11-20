@@ -13,6 +13,7 @@
 import React, { useState, useEffect } from 'react';
 import Dashboard from './components/Dashboard';
 import PasswordGate from './components/PasswordGate';
+import GameInfoModal from './components/GameInfoModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import { checkAuthStatus } from './services/authService';
 import './App.css';
@@ -20,6 +21,9 @@ import './App.css';
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(null); // null = loading, true/false = auth state
   const [isChecking, setIsChecking] = useState(true);
+  const [showGameInfoModal, setShowGameInfoModal] = useState(false);
+  const [gameInfoData, setGameInfoData] = useState(null);
+  const [shouldGenerateAnalysis, setShouldGenerateAnalysis] = useState(false);
 
   // Check authentication status on mount
   useEffect(() => {
@@ -37,6 +41,40 @@ function App() {
 
     verifySession();
   }, []);
+
+  // Show game info modal when user successfully authenticates
+  useEffect(() => {
+    if (isAuthenticated === true && !isChecking) {
+      setShowGameInfoModal(true);
+    }
+  }, [isAuthenticated, isChecking]);
+
+  // Handle game info submission
+  const handleGameInfoSubmit = (data) => {
+    console.log('📱 App.jsx - Received game info from modal:', data);
+    setGameInfoData(data);
+    setShowGameInfoModal(false);
+    setShouldGenerateAnalysis(true); // Trigger analysis generation
+  };
+
+  // Handle game info skip
+  const handleGameInfoSkip = (data) => {
+    console.log('📱 App.jsx - User skipped game info:', data);
+    setGameInfoData(data);
+    setShowGameInfoModal(false);
+    setShouldGenerateAnalysis(true); // Trigger analysis even for skipped
+  };
+
+  // Handle refresh from Dashboard (re-show game info modal)
+  const handleRefresh = () => {
+    setShowGameInfoModal(true);
+  };
+
+  // Callback after analysis completes
+  const handleAnalysisComplete = () => {
+    console.log('📱 App.jsx - Analysis generation completed, resetting flag');
+    setShouldGenerateAnalysis(false);
+  };
 
   // Show loading state while checking authentication
   if (isChecking) {
@@ -59,10 +97,25 @@ function App() {
     );
   }
 
-  // Show dashboard if authenticated
+  // Show game info modal if authenticated and modal should be shown
+  if (showGameInfoModal) {
+    return (
+      <GameInfoModal
+        onSubmit={handleGameInfoSubmit}
+        onSkip={handleGameInfoSkip}
+      />
+    );
+  }
+
+  // Show dashboard if authenticated and game info collected
   return (
     <ErrorBoundary>
-      <Dashboard />
+      <Dashboard
+        gameInfoData={gameInfoData}
+        onRefresh={handleRefresh}
+        shouldGenerateAnalysis={shouldGenerateAnalysis}
+        onAnalysisComplete={handleAnalysisComplete}
+      />
     </ErrorBoundary>
   );
 }

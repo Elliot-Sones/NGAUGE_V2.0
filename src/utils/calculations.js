@@ -212,32 +212,6 @@ export function calculateStatistics(scores) {
   };
 }
 
-/**
- * Generate insights based on scores
- *
- * PLACEHOLDER: Returns empty array for now
- *
- * TO ADD INSIGHTS:
- * 1. Analyze patterns in the data
- * 2. Return array of insight objects
- * 3. Display in InsightsPanel component
- *
- * @param {Object} playerData - Player data object
- * @returns {Array<Object>} Array of insights
- */
-export async function generateInsights(players) {
-  // Import the Gemini service dynamically to avoid circular dependencies
-  const { analyzeTeamResponses } = await import('../services/geminiService.js');
-
-  try {
-    // Call Gemini AI to analyze the open-ended question responses
-    const aiInsights = await analyzeTeamResponses(players);
-    return aiInsights;
-  } catch (error) {
-    console.error('Error generating AI insights:', error);
-    return [];
-  }
-}
 
 /**
  * Get score label (for accessibility and display)

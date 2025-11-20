@@ -376,38 +376,74 @@ export async function fetchStoredInsights() {
 }
 
 /**
- * Saves AI insights to Google Sheets
- * @param {string|null} scoreExplanation - Score explanation text
- * @param {Object} insights - Insights object with summary and suggestions
- * @returns {Promise<boolean>} Success status
+ * Fetches the most recent game info from Google Sheets AIInsights tab
+ * @returns {Promise<Object|null>} Latest game info or null if no data
  */
-export async function saveInsights(scoreExplanation, insights) {
+export async function fetchLatestGameInfo() {
   try {
     const backendUrl = import.meta.env.VITE_BACKEND_URL !== undefined
       ? import.meta.env.VITE_BACKEND_URL
       : (import.meta.env.DEV ? 'http://localhost:3002' : '');
-    const url = `${backendUrl}/api/insights`;
+    const url = `${backendUrl}/api/insights/latest-game-info`;
 
-    console.log('Saving insights to backend API:', url);
+    console.log('Fetching latest game info from backend API:', url);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ scoreExplanation, insights }),
-    });
+    const response = await fetch(url);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || `API error: ${response.status}`);
     }
 
-    console.log('Insights saved successfully');
+    const data = await response.json();
+    console.log('Latest game info fetched:', data);
+
+    return data.gameInfo;
+
+  } catch (error) {
+    console.error('Error fetching latest game info:', error);
+    return null;
+  }
+}
+
+/**
+ * Saves AI insights to Google Sheets
+ * @param {string|null} scoreExplanation - Score explanation text
+ * @param {Object} insights - Insights object with summary and suggestions
+ * @param {Object|null} gameInfo - Game/practice information
+ * @returns {Promise<boolean>} Success status
+ */
+export async function saveInsights(scoreExplanation, insights, gameInfo = null) {
+  try {
+    const backendUrl = import.meta.env.VITE_BACKEND_URL !== undefined
+      ? import.meta.env.VITE_BACKEND_URL
+      : (import.meta.env.DEV ? 'http://localhost:3002' : '');
+    const url = `${backendUrl}/api/insights`;
+
+    const payload = { scoreExplanation, insights, gameInfo };
+    console.log('💾 dataService.saveInsights - Sending to backend:', url);
+    console.log('📦 Payload:', JSON.stringify(payload, null, 2));
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ Backend API error:', errorData);
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ Insights saved successfully:', result);
     return true;
 
   } catch (error) {
-    console.error('Error saving insights:', error);
+    console.error('❌ Error saving insights:', error);
     return false;
   }
 }

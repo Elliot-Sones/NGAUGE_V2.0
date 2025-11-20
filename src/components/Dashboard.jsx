@@ -15,13 +15,12 @@ import {
   getScoreColor,
   calculateDimensionAverages
 } from '../utils/calculations';
-import { generateScoreExplanation, analyzeTeamInsights } from '../services/geminiService';
-import { fetchStoredInsights, saveInsights } from '../services/dataService';
+import { generateScoreExplanation } from '../services/geminiService';
+import { fetchStoredInsights, saveInsights, fetchLatestGameInfo } from '../services/dataService';
 import { BASELINE_SCORES } from '../config/constants';
-import InsightsPanel from './InsightsPanel';
 import TrendChart from './TrendChart';
 
-const Dashboard = () => {
+const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysisComplete }) => {
   const { data, loading, error, lastUpdated, refresh, scoreHistory, dimensionHistory, baselineData, hasBaseline } = useRealtimeData();
 
   // Calculate team-level metrics
@@ -60,9 +59,7 @@ const Dashboard = () => {
   }, [dimensionAverages, dimensionHistory]);
 
   // State for AI-generated content
-  const [insights, setInsights] = React.useState({ summary: '', suggestions: [] });
   const [scoreExplanation, setScoreExplanation] = React.useState(null);
-  const [insightsLoading, setInsightsLoading] = React.useState(false);
   const [explanationLoading, setExplanationLoading] = React.useState(false);
 
   // Calculate baseline average for score explanation
@@ -82,26 +79,45 @@ const Dashboard = () => {
     return sum / scoreHistory.length;
   }, [scoreHistory, teamAverage]);
 
-  // Manual refresh function for score explanation (Call 1)
+  // Manual refresh function for score explanation
+  // Fetches latest game info from sheet and generates new analysis with that same game data
   const refreshScoreExplanation = async () => {
+    console.log('📊 Dashboard - refreshScoreExplanation called - fetching latest game info from sheet');
+
     if (data.length > 0) {
       setExplanationLoading(true);
       try {
+        // Fetch the most recent game info from the sheet
+        const latestGameInfo = await fetchLatestGameInfo();
+
+        if (!latestGameInfo) {
+          console.log('⚠️ No game info found in sheet - cannot regenerate analysis');
+          setScoreExplanation('No historical game data found. Please refresh the page to add game information.');
+          setExplanationLoading(false);
+          return;
+        }
+
+        console.log('📋 Using game info from most recent row:', latestGameInfo);
+
         // Calculate difference if baseline exists
         const difference = hasBaseline ? teamAverage - baselineAverage : null;
 
+        console.log('🤖 Generating NEW analysis with same game info:', latestGameInfo);
         const explanation = await generateScoreExplanation(
           teamAverage,
           baselineAverage, // Will be null if no baseline
           difference,      // Will be null if no baseline
-          overallAverage
+          overallAverage,
+          latestGameInfo   // Use game info from latest row in sheet
         );
         setScoreExplanation(explanation);
 
-        // Save to Google Sheets (keep existing insights)
-        await saveInsights(explanation, insights);
+        // Save to Google Sheets with SAME game info - APPENDS new row with new timestamp
+        console.log('💾 Appending new analysis row to Google Sheets with same gameInfo:', latestGameInfo);
+        await saveInsights(explanation, null, latestGameInfo);
+        console.log('✅ New analysis row appended successfully');
       } catch (error) {
-        console.error('Failed to generate score explanation:', error);
+        console.error('❌ Failed to generate score explanation:', error);
         setScoreExplanation('Unable to generate explanation. Please try again.');
       } finally {
         setExplanationLoading(false);
@@ -109,91 +125,124 @@ const Dashboard = () => {
     }
   };
 
-  // Manual refresh function for AI insights (Call 2)
-  const refreshInsights = async () => {
-    if (data.length > 0) {
-      setInsightsLoading(true);
-      try {
-        const aiInsights = await analyzeTeamInsights(data, teamAverage);
-        setInsights(aiInsights); // Now returns { summary: '', suggestions: [] }
-
-        // Save to Google Sheets (keep existing score explanation)
-        await saveInsights(scoreExplanation, aiInsights);
-      } catch (error) {
-        console.error('Failed to generate insights:', error);
-        setInsights({ summary: '', suggestions: [] }); // Reset to empty structure
-      } finally {
-        setInsightsLoading(false);
-      }
-    }
-  };
-
-  // Auto-generate insights on first load if they don't exist
+  // Auto-generate score explanation on first load if it doesn't exist
   const hasCheckedForInsights = React.useRef(false);
 
   React.useEffect(() => {
-    // Only run after data is loaded and we haven't checked yet
-    if (!loading && data.length > 0 && !hasCheckedForInsights.current) {
-      hasCheckedForInsights.current = true;
+    console.log('🔄 Dashboard useEffect - Conditions:', {
+      loading,
+      dataLength: data.length,
+      hasGameInfo: !!gameInfoData,
+      gameInfoData,
+      hasChecked: hasCheckedForInsights.current
+    });
 
-      // Load stored insights from Google Sheets
+    // Only run after data is loaded, gameInfo is available, and we haven't checked yet
+    if (!loading && data.length > 0 && gameInfoData && !hasCheckedForInsights.current) {
+      hasCheckedForInsights.current = true;
+      console.log('✅ Auto-generation conditions met, starting loadInsights...');
+
+      // Load stored score explanation from Google Sheets OR auto-generate if none exists
       const loadInsights = async () => {
         try {
           const stored = await fetchStoredInsights();
 
-          if (stored.hasInsights) {
-            // Insights exist - load them
-            console.log('Loading existing insights from sheet');
-            if (stored.scoreExplanation) {
-              setScoreExplanation(stored.scoreExplanation);
-            }
-            if (stored.insights) {
-              setInsights(stored.insights);
-            }
+          if (stored.hasInsights && stored.scoreExplanation) {
+            // Score explanation exists - load it (display most recent)
+            console.log('📖 Loading most recent score explanation from sheet');
+            setScoreExplanation(stored.scoreExplanation);
           } else {
-            // No insights exist - auto-generate both
-            console.log('No insights found - auto-generating...');
-            setInsightsLoading(true);
+            // No score explanation exists - this is first load ever
+            // Auto-generate FIRST analysis row
+            console.log('🆕 No score explanation found - auto-generating FIRST analysis with gameInfo:', gameInfoData);
             setExplanationLoading(true);
 
             try {
-              // Generate both analyses in parallel
+              // Generate score explanation
               const difference = hasBaseline ? teamAverage - baselineAverage : null;
 
-              const [explanation, aiInsights] = await Promise.all([
-                generateScoreExplanation(
-                  teamAverage,
-                  baselineAverage,
-                  difference,
-                  overallAverage
-                ),
-                analyzeTeamInsights(data, teamAverage)
-              ]);
+              console.log('🤖 Auto-calling generateScoreExplanation for FIRST entry with gameInfo:', gameInfoData);
+              const explanation = await generateScoreExplanation(
+                teamAverage,
+                baselineAverage,
+                difference,
+                overallAverage,
+                gameInfoData
+              );
 
               // Update state
               setScoreExplanation(explanation);
-              setInsights(aiInsights);
 
-              // Save to Google Sheets
-              await saveInsights(explanation, aiInsights);
+              // Save to Google Sheets with game info - creates FIRST row
+              console.log('💾 Auto-saving FIRST analysis row with gameInfo:', gameInfoData);
+              await saveInsights(explanation, null, gameInfoData);
 
-              console.log('Auto-generated insights saved successfully');
+              console.log('✅ Auto-generated FIRST score explanation saved successfully');
             } catch (error) {
-              console.error('Error auto-generating insights:', error);
+              console.error('❌ Error auto-generating score explanation:', error);
             } finally {
-              setInsightsLoading(false);
               setExplanationLoading(false);
             }
           }
         } catch (error) {
-          console.error('Error loading insights:', error);
+          console.error('❌ Error loading score explanation:', error);
           hasCheckedForInsights.current = false; // Allow retry
         }
       };
 
       loadInsights();
     }
-  }, [loading, data.length, teamAverage, hasBaseline, baselineAverage, overallAverage]);
+  }, [loading, data.length, teamAverage, hasBaseline, baselineAverage, overallAverage, gameInfoData]);
+
+  // Auto-generate analysis when trigger flag is set (from game info submission)
+  React.useEffect(() => {
+    console.log('🔄 Dashboard - shouldGenerateAnalysis effect:', {
+      shouldGenerateAnalysis,
+      hasGameInfo: !!gameInfoData,
+      dataLength: data.length,
+      loading
+    });
+
+    if (shouldGenerateAnalysis && gameInfoData && data.length > 0 && !loading) {
+      console.log('✅ Conditions met - generating new analysis');
+
+      const generateNewAnalysis = async () => {
+        setExplanationLoading(true);
+        try {
+          // Calculate difference if baseline exists
+          const difference = hasBaseline ? teamAverage - baselineAverage : null;
+
+          console.log('🤖 Generating NEW analysis with gameInfo:', gameInfoData);
+          const explanation = await generateScoreExplanation(
+            teamAverage,
+            baselineAverage,
+            difference,
+            overallAverage,
+            gameInfoData
+          );
+
+          // Update state
+          setScoreExplanation(explanation);
+
+          // Save to Google Sheets with game info - APPENDS new row
+          console.log('💾 Saving new analysis row with gameInfo:', gameInfoData);
+          await saveInsights(explanation, null, gameInfoData);
+
+          console.log('✅ New analysis generated and saved successfully');
+        } catch (error) {
+          console.error('❌ Error generating new analysis:', error);
+        } finally {
+          setExplanationLoading(false);
+          // Reset the trigger flag
+          if (onAnalysisComplete) {
+            onAnalysisComplete();
+          }
+        }
+      };
+
+      generateNewAnalysis();
+    }
+  }, [shouldGenerateAnalysis, gameInfoData, data.length, loading, teamAverage, hasBaseline, baselineAverage, overallAverage, onAnalysisComplete]);
 
   /**
    * Empty State - No Data Loaded
@@ -283,7 +332,10 @@ const Dashboard = () => {
                 <div className="text-base sm:text-lg font-semibold text-white">{currentDate}</div>
               </div>
               <button
-                onClick={refresh}
+                onClick={() => {
+                  refresh();
+                  if (onRefresh) onRefresh();
+                }}
                 disabled={loading}
                 className={`px-4 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] ${
                   loading
@@ -554,44 +606,6 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* AI INSIGHTS PANEL */}
-        <div className="mb-12">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 uppercase tracking-tight">THINGS TO LOOK OUT FOR</h2>
-            <button
-              onClick={refreshInsights}
-              disabled={insightsLoading}
-              className={`px-4 sm:px-5 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] text-sm sm:text-base ${
-                insightsLoading
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95 hover:shadow-lg'
-              }`}
-            >
-              {insightsLoading ? (
-                <>
-                  <span className="inline-block animate-spin mr-2">⟳</span>
-                  Analyzing...
-                </>
-              ) : (
-                'Generate Insights'
-              )}
-            </button>
-          </div>
-
-          {/* Player Notes Summary - styled like Score Analysis */}
-          {insights.summary && (
-            <div className="mb-6">
-              <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-3 uppercase tracking-tight">
-                Player Notes Summary
-              </h3>
-              <div className="text-sm sm:text-base text-gray-900 leading-relaxed whitespace-pre-line">
-                {insights.summary}
-              </div>
-            </div>
-          )}
-
-          <InsightsPanel suggestions={insights.suggestions} />
-        </div>
 
       </main>
 
