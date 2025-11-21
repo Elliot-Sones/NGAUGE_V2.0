@@ -19,7 +19,7 @@ import { generateScoreExplanation, generateThingsToLookOutFor } from '../service
 import { fetchStoredInsights, saveInsights, fetchLatestGameInfo } from '../services/dataService';
 import TrendChart from './TrendChart';
 
-const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysisComplete, onAddGame }) => {
+const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysisComplete, onAddGame, onRequestGameInfo }) => {
   const { data, loading, error, lastUpdated, refresh, scoreHistory, dimensionHistory } = useRealtimeData();
 
   // Calculate team-level metrics
@@ -152,8 +152,8 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
             setScoreExplanation(stored.scoreExplanation);
             setThingsToLookOutFor(stored.thingsToLookOutFor);
           } else {
-            // Insights are incomplete or missing - need to regenerate
-            console.log('⚠️ Insights incomplete or missing - need game info to regenerate');
+            // Insights are incomplete or missing - show GameInfoModal
+            console.log('⚠️ Insights incomplete or missing - showing GameInfoModal');
             console.log('Stored insights status:', {
               hasInsights: stored.hasInsights,
               isComplete: stored.isComplete,
@@ -161,17 +161,9 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
               hasThingsToLookOutFor: !!stored.thingsToLookOutFor
             });
 
-            // Show placeholder message prompting user action
-            if (!stored.scoreExplanation) {
-              setScoreExplanation('No complete analysis found. Please use "Refresh Data" or "Add Game" to generate a new analysis.');
-            } else {
-              setScoreExplanation(stored.scoreExplanation);
-            }
-
-            if (!stored.thingsToLookOutFor) {
-              setThingsToLookOutFor(null);
-            } else {
-              setThingsToLookOutFor(stored.thingsToLookOutFor);
+            // Trigger GameInfoModal to show
+            if (onRequestGameInfo) {
+              onRequestGameInfo();
             }
           }
         } catch (error) {
@@ -182,7 +174,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
       loadInsights();
     }
-  }, [loading, data.length, shouldGenerateAnalysis]);
+  }, [loading, data.length, shouldGenerateAnalysis, onRequestGameInfo]);
 
   // Auto-generate analysis when trigger flag is set (from game info submission)
   React.useEffect(() => {

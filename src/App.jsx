@@ -69,6 +69,12 @@ function App() {
     setShowGameInfoModal(true);
   };
 
+  // Handle request for game info when insights are incomplete
+  const handleRequestGameInfo = () => {
+    console.log('📱 App.jsx - Dashboard requested game info (insights incomplete), showing modal');
+    setShowGameInfoModal(true);
+  };
+
   // Callback after analysis completes
   const handleAnalysisComplete = () => {
     console.log('📱 App.jsx - Analysis generation completed, resetting flag');
@@ -115,6 +121,7 @@ function App() {
         shouldGenerateAnalysis={shouldGenerateAnalysis}
         onAnalysisComplete={handleAnalysisComplete}
         onAddGame={handleAddGame}
+        onRequestGameInfo={handleRequestGameInfo}
       />
     </ErrorBoundary>
   );
