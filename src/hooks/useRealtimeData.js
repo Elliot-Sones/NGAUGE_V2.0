@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { getChemistryData, fetchBaselineData } from '../services/dataService';
+import { getChemistryData } from '../services/dataService';
 import { calculateTeamAverage, calculateDimensionAverages } from '../utils/calculations';
 
 const MAX_HISTORY_LENGTH = 10; // Keep last 10 data points
@@ -22,30 +22,10 @@ export function useRealtimeData() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [scoreHistory, setScoreHistory] = useState([]); // Track historical team scores
   const [dimensionHistory, setDimensionHistory] = useState([]); // Track historical dimension scores
-  const [baselineData, setBaselineData] = useState(null); // Baseline scores from database
-  const [baselineLoading, setBaselineLoading] = useState(true);
   const intervalRef = useRef(null);
 
   // Store previous data for trend calculation
   const previousDataRef = useRef({});
-
-  /**
-   * Fetch baseline data from database
-   */
-  const loadBaselineData = async () => {
-    try {
-      setBaselineLoading(true);
-      const baseline = await fetchBaselineData();
-      setBaselineData(baseline); // Will be null if no baseline exists
-      console.log('Baseline loaded:', baseline ? 'Data found' : 'No baseline data');
-    } catch (err) {
-      console.error('Error loading baseline data:', err);
-      // Set to null on error - missing baseline is not fatal
-      setBaselineData(null);
-    } finally {
-      setBaselineLoading(false);
-    }
-  };
 
   /**
    * Fetch data from the service
@@ -54,16 +34,8 @@ export function useRealtimeData() {
     try {
       setError(null);
 
-      // Fetch weekly data and baseline data in parallel
-      // Baseline is loaded separately and won't block weekly data
-      const [newData] = await Promise.all([
-        getChemistryData(),
-        loadBaselineData().catch(err => {
-          // Baseline errors don't block weekly data loading
-          console.warn('Baseline loading failed (non-fatal):', err);
-          return null;
-        })
-      ]);
+      // Fetch weekly data
+      const newData = await getChemistryData();
 
       // Store previous scores for trend calculation
       data.forEach(player => {
@@ -74,7 +46,6 @@ export function useRealtimeData() {
       });
 
       // Calculate team average and dimension averages, add to history
-      // This happens regardless of baseline status
       if (newData.length > 0) {
         const teamAvg = calculateTeamAverage(newData);
         const dimensionAvgs = calculateDimensionAverages(newData);
@@ -155,10 +126,7 @@ export function useRealtimeData() {
     refresh,
     getPreviousScore,
     scoreHistory,
-    dimensionHistory,    // Historical dimension scores for trend calculation
-    baselineData,        // Baseline scores object (null if no baseline)
-    baselineLoading,     // Loading state for baseline
-    hasBaseline: baselineData !== null  // Convenient boolean flag
+    dimensionHistory    // Historical dimension scores for trend calculation
   };
 }
 

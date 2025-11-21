@@ -119,8 +119,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const SHEET_ID = process.env.VITE_GOOGLE_SHEET_ID;
 const CREDENTIALS_PATH = process.env.VITE_GOOGLE_CREDENTIALS_PATH;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-// Allow selecting which sheet tab to use for baseline values
-const BASELINE_SHEET_RANGE = process.env.VITE_GOOGLE_BASELINE_SHEET || 'Baseline';
 
 // Validate required environment variables on startup
 if (!SHEET_ID) {
@@ -255,7 +253,7 @@ app.get('/api/sheets', async (req, res) => {
     const response = await Promise.race([
       sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'Weekly',
+        range: 'Weekly-Chemistry',
       }),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Google Sheets API timeout')), API_TIMEOUT)
@@ -301,120 +299,11 @@ app.get('/api/sheets', async (req, res) => {
   }
 });
 
-/**
- * GET /api/baseline
- * Fetches baseline data from Google Sheets "Baseline" sheet
- * Returns empty response if baseline sheet doesn't exist or is empty
- * This is NOT an error condition - the app should gracefully handle missing baseline
- *
- * SECURITY:
- * - Rate limited to prevent abuse
- * - Credentials stored server-side only
- * - Error messages sanitized in production
- */
-app.get('/api/baseline', async (req, res) => {
-  try {
-    // Check if credentials file exists
-    if (!fs.existsSync(CREDENTIALS_PATH)) {
-      console.error('Credentials file not found:', CREDENTIALS_PATH);
-      return res.status(500).json({
-        error: 'Service configuration error',
-        message: NODE_ENV === 'development'
-          ? `Credentials file not found: ${CREDENTIALS_PATH}`
-          : 'Service is not properly configured'
-      });
-    }
-
-    // Read and parse credentials
-    const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
-
-    // Create auth client
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-
-    const authClient = await auth.getClient();
-
-    // Create sheets API instance
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-
-    // Fetch baseline data with timeout protection
-    const response = await Promise.race([
-      sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: BASELINE_SHEET_RANGE,
-      }),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Google Sheets API timeout')), API_TIMEOUT)
-      )
-    ]);
-
-    const data = response.data.values;
-
-    // If no data or empty, return success with empty values
-    // This is NOT an error - baseline is optional
-    if (!data || data.length === 0) {
-      return res.json({
-        success: true,
-        hasBaseline: false,
-        values: [],
-        rowCount: 0,
-        columnCount: 0,
-        timestamp: new Date().toISOString(),
-        message: 'No baseline data found - this is expected if baseline has not been set'
-      });
-    }
-
-    // Return the baseline data
-    res.json({
-      success: true,
-      hasBaseline: true,
-      values: data,
-      rowCount: data.length,
-      columnCount: data[0]?.length || 0,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Error fetching baseline data:', error);
-
-    // If the error is because the "Baseline" sheet doesn't exist, return empty (not an error)
-    if (error.message?.includes('Unable to parse range') ||
-        error.code === 400 ||
-        error.message?.includes('not found')) {
-      return res.json({
-        success: true,
-        hasBaseline: false,
-        values: [],
-        rowCount: 0,
-        columnCount: 0,
-        timestamp: new Date().toISOString(),
-        message: 'Baseline sheet does not exist - this is expected if baseline has not been set'
-      });
-    }
-
-    // For real errors (auth, network, etc.), return 500
-    const statusCode = error.code === 403 ? 403 : 500;
-
-    res.status(statusCode).json({
-      success: false,
-      hasBaseline: false,
-      error: 'Failed to fetch baseline data',
-      ...(NODE_ENV === 'development' ? {
-        message: error.message,
-        code: error.code
-      } : {
-        message: 'Unable to retrieve baseline data from the source'
-      })
-    });
-  }
-});
 
 /**
  * GET /api/insights
  * Fetches stored AI insights from Google Sheets "AIInsights" sheet
- * NEW FORMAT: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Team Insights Summary
+ * NEW FORMAT: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
  */
 app.get('/api/insights', async (req, res) => {
   try {
@@ -455,20 +344,21 @@ app.get('/api/insights', async (req, res) => {
       }
 
       // Parse the stored insights
-      // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Team Insights Summary
+      // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
       const rows = data.slice(1); // Skip headers
 
       // Get the most recent row (last row in the sheet)
       const latestRow = rows[rows.length - 1];
 
       const scoreExplanation = latestRow[5] || null;  // Column F
-      const summary = latestRow[6] || '';              // Column G
+      const thingsToLookOutFor = latestRow[6] || null; // Column G
 
       return res.json({
         success: true,
-        hasInsights: !!(scoreExplanation || summary),
+        hasInsights: !!(scoreExplanation || thingsToLookOutFor),
         scoreExplanation,
-        insights: { summary, suggestions: [] },
+        thingsToLookOutFor,
+        insights: { summary: '', suggestions: [] },
         timestamp: new Date().toISOString()
       });
 
@@ -540,7 +430,7 @@ app.get('/api/insights/latest-game-info', async (req, res) => {
       const latestRow = data[data.length - 1];
 
       // Extract game info from columns B-E
-      // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Team Insights Summary
+      // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
       const gameInfo = {
         result: latestRow[1] !== 'N/A' ? latestRow[1] : null,
         yourScore: latestRow[2] !== 'N/A' ? parseInt(latestRow[2]) : null,
@@ -582,23 +472,25 @@ app.get('/api/insights/latest-game-info', async (req, res) => {
 /**
  * POST /api/insights
  * Saves AI insights to Google Sheets "AIInsights" sheet
- * NEW FORMAT: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Team Insights Summary
+ * NEW FORMAT: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
  */
 app.post('/api/insights', async (req, res) => {
   try {
-    const { scoreExplanation, insights, gameInfo } = req.body;
+    const { scoreExplanation, insights, gameInfo, thingsToLookOutFor } = req.body;
 
     console.log('🔥🔥🔥 NEW CODE - POST /api/insights received:', {
       hasScoreExplanation: !!scoreExplanation,
       hasInsights: !!insights,
       hasGameInfo: !!gameInfo,
+      hasThingsToLookOutFor: !!thingsToLookOutFor,
+      thingsToLookOutForLength: thingsToLookOutFor?.length || 0,
       gameInfo
     });
 
-    if (!scoreExplanation && !insights) {
+    if (!scoreExplanation && !insights && !thingsToLookOutFor) {
       return res.status(400).json({
         success: false,
-        error: 'At least one of scoreExplanation or insights is required'
+        error: 'At least one of scoreExplanation, insights, or thingsToLookOutFor is required'
       });
     }
 
@@ -675,7 +567,7 @@ app.post('/api/insights', async (req, res) => {
             'Opponent Score',
             'Practice Performance (1-10)',
             'Score Explanation',
-            'Team Insights Summary'
+            'Things to Look Out For'
           ]]
         }
       });
@@ -683,6 +575,12 @@ app.post('/api/insights', async (req, res) => {
     }
 
     // Create a single row with timestamp, game info, and both AI analyses
+    console.log('🔍 DEBUG - Building row with:', {
+      scoreExplanationLength: scoreExplanation?.length || 0,
+      thingsToLookOutForLength: thingsToLookOutFor?.length || 0,
+      thingsToLookOutForPreview: thingsToLookOutFor ? thingsToLookOutFor.substring(0, 100) : 'NULL/UNDEFINED'
+    });
+
     const row = [
       timestamp,
       gameInfo && !gameInfo.skipped ? gameInfo.result : 'N/A',
@@ -690,10 +588,10 @@ app.post('/api/insights', async (req, res) => {
       gameInfo && !gameInfo.skipped ? gameInfo.opponentScore : 'N/A',
       gameInfo && !gameInfo.skipped ? gameInfo.practicePerformance : 'N/A',
       scoreExplanation || '',
-      insights?.summary || ''
+      thingsToLookOutFor || ''
     ];
 
-    console.log('🔥🔥🔥 NEW FORMAT - Appending row:', row);
+    console.log('🔥🔥🔥 NEW FORMAT - Appending row:', JSON.stringify(row, null, 2));
 
     // Append the row
     await sheets.spreadsheets.values.append({
@@ -1199,7 +1097,6 @@ app.listen(PORT, () => {
   console.log();
   console.log(`API Endpoints:`);
   console.log(`  GET  http://localhost:${PORT}/api/sheets`);
-  console.log(`  GET  http://localhost:${PORT}/api/baseline`);
   console.log(`  GET  http://localhost:${PORT}/api/insights`);
   console.log(`  POST http://localhost:${PORT}/api/insights`);
   console.log(`  POST http://localhost:${PORT}/api/analyze`);

@@ -70,6 +70,12 @@ function App() {
     setShowGameInfoModal(true);
   };
 
+  // Handle add game button from Dashboard (re-show game info modal)
+  const handleAddGame = () => {
+    console.log('📱 App.jsx - Add Game button clicked, showing game info modal');
+    setShowGameInfoModal(true);
+  };
+
   // Callback after analysis completes
   const handleAnalysisComplete = () => {
     console.log('📱 App.jsx - Analysis generation completed, resetting flag');
@@ -115,6 +121,7 @@ function App() {
         onRefresh={handleRefresh}
         shouldGenerateAnalysis={shouldGenerateAnalysis}
         onAnalysisComplete={handleAnalysisComplete}
+        onAddGame={handleAddGame}
       />
     </ErrorBoundary>
   );

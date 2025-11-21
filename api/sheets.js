@@ -72,7 +72,7 @@ export default async function handler(req, res) {
     const response = await Promise.race([
       sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'Weekly',
+        range: 'Weekly-Chemistry',
       }),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Google Sheets API timeout')), API_TIMEOUT)

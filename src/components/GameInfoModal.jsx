@@ -33,16 +33,19 @@ function GameInfoModal({ onSubmit, onSkip }) {
       newErrors.result = 'Please select a game result';
     }
 
-    if (!formData.yourScore || formData.yourScore === '') {
-      newErrors.yourScore = 'Please enter your team\'s score';
-    } else if (isNaN(formData.yourScore) || formData.yourScore < 0) {
-      newErrors.yourScore = 'Score must be a positive number';
-    }
+    // Only validate scores if result is not "No Game"
+    if (formData.result !== 'No Game') {
+      if (!formData.yourScore || formData.yourScore === '') {
+        newErrors.yourScore = 'Please enter your team\'s score';
+      } else if (isNaN(formData.yourScore) || formData.yourScore < 0) {
+        newErrors.yourScore = 'Score must be a positive number';
+      }
 
-    if (!formData.opponentScore || formData.opponentScore === '') {
-      newErrors.opponentScore = 'Please enter opponent\'s score';
-    } else if (isNaN(formData.opponentScore) || formData.opponentScore < 0) {
-      newErrors.opponentScore = 'Score must be a positive number';
+      if (!formData.opponentScore || formData.opponentScore === '') {
+        newErrors.opponentScore = 'Please enter opponent\'s score';
+      } else if (isNaN(formData.opponentScore) || formData.opponentScore < 0) {
+        newErrors.opponentScore = 'Score must be a positive number';
+      }
     }
 
     if (!formData.practicePerformance || formData.practicePerformance === '') {
@@ -64,8 +67,8 @@ function GameInfoModal({ onSubmit, onSkip }) {
     if (validateForm()) {
       const gameData = {
         result: formData.result,
-        yourScore: parseInt(formData.yourScore),
-        opponentScore: parseInt(formData.opponentScore),
+        yourScore: formData.result !== 'No Game' ? parseInt(formData.yourScore) : null,
+        opponentScore: formData.result !== 'No Game' ? parseInt(formData.opponentScore) : null,
         practicePerformance: parseInt(formData.practicePerformance),
         skipped: false
       };
@@ -118,7 +121,7 @@ function GameInfoModal({ onSubmit, onSkip }) {
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Game Result */}
               <div>
-                <label className="block text-sm font-medium text-gray-200 mb-2">
+                <label className="block text-base font-semibold text-white mb-2">
                   Game Result
                 </label>
                 <select
@@ -133,80 +136,98 @@ function GameInfoModal({ onSubmit, onSkip }) {
                   <option value="Win" className="bg-gray-800">Win</option>
                   <option value="Lose" className="bg-gray-800">Lose</option>
                   <option value="Tie" className="bg-gray-800">Tie</option>
+                  <option value="No Game" className="bg-gray-800">No Game</option>
                 </select>
                 {errors.result && (
                   <p className="mt-1 text-sm text-red-400">{errors.result}</p>
                 )}
               </div>
 
-              {/* Score Section */}
-              <div className="grid grid-cols-2 gap-4">
-                {/* Your Team Score */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-200 mb-2">
-                    Your Score
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formData.yourScore}
-                    onChange={(e) => handleChange('yourScore', e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    className={`w-full px-4 py-3 bg-white/5 border ${
-                      errors.yourScore ? 'border-red-500' : 'border-white/10'
-                    } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
-                    placeholder="0"
-                  />
-                  {errors.yourScore && (
-                    <p className="mt-1 text-sm text-red-400">{errors.yourScore}</p>
-                  )}
-                </div>
+              {/* Score Section - Only show when a game result is selected (not "No Game") */}
+              {formData.result && formData.result !== 'No Game' && (
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Your Team Score */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-2">
+                      Your Score
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={formData.yourScore}
+                      onChange={(e) => handleChange('yourScore', e.target.value)}
+                      onKeyPress={handleKeyPress}
+                      className={`w-full px-4 py-3 bg-white/5 border ${
+                        errors.yourScore ? 'border-red-500' : 'border-white/10'
+                      } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
+                      placeholder="0"
+                    />
+                    {errors.yourScore && (
+                      <p className="mt-1 text-sm text-red-400">{errors.yourScore}</p>
+                    )}
+                  </div>
 
-                {/* Opponent Score */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-200 mb-2">
-                    Opponent
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formData.opponentScore}
-                    onChange={(e) => handleChange('opponentScore', e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    className={`w-full px-4 py-3 bg-white/5 border ${
-                      errors.opponentScore ? 'border-red-500' : 'border-white/10'
-                    } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
-                    placeholder="0"
-                  />
-                  {errors.opponentScore && (
-                    <p className="mt-1 text-sm text-red-400">{errors.opponentScore}</p>
-                  )}
+                  {/* Opponent Score */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-2">
+                      Opponent
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={formData.opponentScore}
+                      onChange={(e) => handleChange('opponentScore', e.target.value)}
+                      onKeyPress={handleKeyPress}
+                      className={`w-full px-4 py-3 bg-white/5 border ${
+                        errors.opponentScore ? 'border-red-500' : 'border-white/10'
+                      } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
+                      placeholder="0"
+                    />
+                    {errors.opponentScore && (
+                      <p className="mt-1 text-sm text-red-400">{errors.opponentScore}</p>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Practice Performance */}
               <div>
-                <label className="block text-sm font-medium text-gray-200 mb-2">
+                <label className="block text-base font-semibold text-white mb-2">
                   Practice Performance (1-10)
                 </label>
+                <p className="mb-3 text-xs text-gray-200">
+                  Rate your team's practice performance this week
+                </p>
                 <input
-                  type="number"
+                  type="range"
                   min="1"
                   max="10"
-                  value={formData.practicePerformance}
+                  value={formData.practicePerformance || 5}
                   onChange={(e) => handleChange('practicePerformance', e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  className={`w-full px-4 py-3 bg-white/5 border ${
-                    errors.practicePerformance ? 'border-red-500' : 'border-white/10'
-                  } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
-                  placeholder="1-10"
+                  className={`w-full h-2 bg-white/5 rounded-lg appearance-none cursor-pointer slider ${
+                    errors.practicePerformance ? 'border border-red-500' : ''
+                  }`}
+                  style={{
+                    background: formData.practicePerformance
+                      ? `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((formData.practicePerformance - 1) / 9) * 100}%, rgba(255,255,255,0.05) ${((formData.practicePerformance - 1) / 9) * 100}%, rgba(255,255,255,0.05) 100%)`
+                      : 'rgba(255,255,255,0.05)'
+                  }}
                 />
+                <div className="flex justify-between text-xs text-white mt-2 px-1">
+                  <span>1</span>
+                  <span>2</span>
+                  <span>3</span>
+                  <span>4</span>
+                  <span>5</span>
+                  <span>6</span>
+                  <span>7</span>
+                  <span>8</span>
+                  <span>9</span>
+                  <span>10</span>
+                </div>
                 {errors.practicePerformance && (
                   <p className="mt-1 text-sm text-red-400">{errors.practicePerformance}</p>
                 )}
-                <p className="mt-1 text-xs text-gray-400">
-                  Rate your team's practice performance this week
-                </p>
               </div>
 
               {/* Buttons */}

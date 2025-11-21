@@ -46,15 +46,3 @@ export const LAYOUT = {
   MAX_PLAYERS_PER_ROW: 3,
   CARD_MIN_WIDTH: '300px'
 };
-
-// Baseline scores for comparison (will eventually come from Google Sheets)
-// These are temporary default values - update as needed
-export const BASELINE_SCORES = {
-  'Collective Efficacy': 70.0,
-  'Task Cohesion': 65.0,
-  'Role Clarity': 75.0,
-  'Trust': 60.0,
-  'Psychological Safety': 70.0,
-  'Communication Quality': 68.0,
-  'Energy/Motivation': 65.0
-};

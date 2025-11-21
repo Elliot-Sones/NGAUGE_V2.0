@@ -6,7 +6,7 @@
  * - POST: Saves new insights to "AIInsights" sheet
  *
  * SHEET STRUCTURE (AIInsights):
- * Row 1: Headers [Timestamp | Game Result | Your Score | Opponent Score | Practice Performance (1-10) | Score Explanation | Team Insights Summary]
+ * Row 1: Headers [Timestamp | Game Result | Your Score | Opponent Score | Practice Performance (1-10) | Score Explanation | Things to Look Out For]
  * Row 2+: Data rows with game info and AI analysis (one row per analysis)
  */
 
@@ -74,19 +74,20 @@ async function fetchInsights(sheets, sheetId) {
     }
 
     // Parse the stored insights
-    // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Team Insights Summary
+    // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
     const rows = data.slice(1); // Skip headers
 
     // Get the most recent row (last row in the sheet)
     const latestRow = rows[rows.length - 1];
 
     const scoreExplanation = latestRow[5] || null;  // Column F
-    const summary = latestRow[6] || '';              // Column G
+    const thingsToLookOutFor = latestRow[6] || null; // Column G (removed Team Insights Summary)
 
     return {
-      hasInsights: !!(scoreExplanation || summary),
+      hasInsights: !!(scoreExplanation || thingsToLookOutFor),
       scoreExplanation,
-      insights: { summary, suggestions: [] }
+      thingsToLookOutFor,
+      insights: { summary: '', suggestions: [] }
     };
 
   } catch (error) {
@@ -103,16 +104,16 @@ async function fetchInsights(sheets, sheetId) {
 }
 
 /**
- * Save insights to Google Sheets
+ * Save insights to Google Sheets (removed Team Insights Summary - now 7 columns)
  */
-async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInfo) {
+async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInfo, thingsToLookOutFor) {
   const timestamp = new Date().toISOString();
 
-  console.log('🔥🔥🔥 NEW CODE RUNNING - saveInsights function called with:', {
+  console.log('🔥🔥🔥 saveInsights (7-column format) called with:', {
     timestamp,
     gameInfo,
     scoreExplanationLength: scoreExplanation?.length || 0,
-    hasInsights: !!insights
+    thingsToLookOutForLength: thingsToLookOutFor?.length || 0
   });
 
   // Check current sheet structure
@@ -140,7 +141,7 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
   } catch (error) {
     // Sheet doesn't exist
     if (error.code === 400) {
-      console.log('⚠️ Sheet does not exist, creating with 7-column format...');
+      console.log('⚠️ Sheet does not exist, creating...');
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: sheetId,
         resource: {
@@ -171,7 +172,7 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
           'Opponent Score',
           'Practice Performance (1-10)',
           'Score Explanation',
-          'Team Insights Summary'
+          'Things to Look Out For'
         ]]
       }
     });
@@ -181,7 +182,13 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
   // Prepare rows to write - each analysis creates ONE row with all data
   const rows = [];
 
-  // Create a single row with timestamp, game info, and both AI analyses
+  // Create a single row with timestamp, game info, and all AI analyses
+  console.log('🔍 DEBUG - Building row with:', {
+    scoreExplanationLength: scoreExplanation?.length || 0,
+    thingsToLookOutForLength: thingsToLookOutFor?.length || 0,
+    thingsToLookOutForPreview: thingsToLookOutFor ? thingsToLookOutFor.substring(0, 100) : 'NULL/UNDEFINED'
+  });
+
   const row = [
     timestamp,
     gameInfo && !gameInfo.skipped ? gameInfo.result : 'N/A',
@@ -189,7 +196,7 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
     gameInfo && !gameInfo.skipped ? gameInfo.opponentScore : 'N/A',
     gameInfo && !gameInfo.skipped ? gameInfo.practicePerformance : 'N/A',
     scoreExplanation || '',
-    insights?.summary || ''
+    thingsToLookOutFor || ''
   ];
 
   rows.push(row);
@@ -238,24 +245,25 @@ export default async function handler(req, res) {
 
     // POST: Save new insights
     if (req.method === 'POST') {
-      const { scoreExplanation, insights, gameInfo } = req.body;
+      const { scoreExplanation, insights, gameInfo, thingsToLookOutFor } = req.body;
 
       console.log('🔵 API /api/insights POST - Received request body:', {
         hasScoreExplanation: !!scoreExplanation,
         hasInsights: !!insights,
         hasGameInfo: !!gameInfo,
+        hasThingsToLookOutFor: !!thingsToLookOutFor,
         gameInfo: gameInfo
       });
 
-      if (!scoreExplanation && !insights) {
+      if (!scoreExplanation && !insights && !thingsToLookOutFor) {
         return res.status(400).json({
           success: false,
-          error: 'At least one of scoreExplanation or insights is required'
+          error: 'At least one of scoreExplanation, insights, or thingsToLookOutFor is required'
         });
       }
 
       console.log('📝 Calling saveInsights with gameInfo:', gameInfo);
-      await saveInsights(sheets, SHEET_ID, scoreExplanation, insights, gameInfo);
+      await saveInsights(sheets, SHEET_ID, scoreExplanation, insights, gameInfo, thingsToLookOutFor);
       console.log('✅ saveInsights completed');
 
       return res.status(200).json({

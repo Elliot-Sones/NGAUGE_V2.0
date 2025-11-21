@@ -134,6 +134,7 @@ export default async function handler(req, res) {
         generationConfig: {
           temperature: analysisConfig.temperature,
           maxOutputTokens: analysisConfig.maxOutputTokens,
+          responseMimeType: 'text/plain',
         }
       })
     });

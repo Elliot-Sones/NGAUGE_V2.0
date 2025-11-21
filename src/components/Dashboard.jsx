@@ -15,13 +15,12 @@ import {
   getScoreColor,
   calculateDimensionAverages
 } from '../utils/calculations';
-import { generateScoreExplanation } from '../services/geminiService';
+import { generateScoreExplanation, generateThingsToLookOutFor } from '../services/geminiService';
 import { fetchStoredInsights, saveInsights, fetchLatestGameInfo } from '../services/dataService';
-import { BASELINE_SCORES } from '../config/constants';
 import TrendChart from './TrendChart';
 
-const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysisComplete }) => {
-  const { data, loading, error, lastUpdated, refresh, scoreHistory, dimensionHistory, baselineData, hasBaseline } = useRealtimeData();
+const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysisComplete, onAddGame }) => {
+  const { data, loading, error, lastUpdated, refresh, scoreHistory, dimensionHistory } = useRealtimeData();
 
   // Calculate team-level metrics
   const teamAverage = calculateTeamAverage(data);
@@ -61,16 +60,9 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
   // State for AI-generated content
   const [scoreExplanation, setScoreExplanation] = React.useState(null);
   const [explanationLoading, setExplanationLoading] = React.useState(false);
+  const [thingsToLookOutFor, setThingsToLookOutFor] = React.useState(null);
+  const [thingsLoading, setThingsLoading] = React.useState(false);
 
-  // Calculate baseline average for score explanation
-  // Use database baseline if available, otherwise use hardcoded values
-  const baselineAverage = React.useMemo(() => {
-    if (hasBaseline && baselineData) {
-      const baselineValues = Object.values(baselineData);
-      return baselineValues.reduce((sum, val) => sum + val, 0) / baselineValues.length;
-    }
-    return null; // No baseline available
-  }, [hasBaseline, baselineData]);
 
   // Calculate overall average from score history
   const overallAverage = React.useMemo(() => {
@@ -99,14 +91,9 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
         console.log('📋 Using game info from most recent row:', latestGameInfo);
 
-        // Calculate difference if baseline exists
-        const difference = hasBaseline ? teamAverage - baselineAverage : null;
-
         console.log('🤖 Generating NEW analysis with same game info:', latestGameInfo);
         const explanation = await generateScoreExplanation(
           teamAverage,
-          baselineAverage, // Will be null if no baseline
-          difference,      // Will be null if no baseline
           overallAverage,
           latestGameInfo   // Use game info from latest row in sheet
         );
@@ -114,7 +101,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
         // Save to Google Sheets with SAME game info - APPENDS new row with new timestamp
         console.log('💾 Appending new analysis row to Google Sheets with same gameInfo:', latestGameInfo);
-        await saveInsights(explanation, null, latestGameInfo);
+        await saveInsights(explanation, null, latestGameInfo, null);
         console.log('✅ New analysis row appended successfully');
       } catch (error) {
         console.error('❌ Failed to generate score explanation:', error);
@@ -134,8 +121,16 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
       dataLength: data.length,
       hasGameInfo: !!gameInfoData,
       gameInfoData,
-      hasChecked: hasCheckedForInsights.current
+      hasChecked: hasCheckedForInsights.current,
+      shouldGenerateAnalysis
     });
+
+    // IMPORTANT: Skip this effect if shouldGenerateAnalysis is true
+    // The second useEffect will handle generation in that case
+    if (shouldGenerateAnalysis) {
+      console.log('⏭️ Skipping first useEffect because shouldGenerateAnalysis=true');
+      return;
+    }
 
     // Only run after data is loaded, gameInfo is available, and we haven't checked yet
     if (!loading && data.length > 0 && gameInfoData && !hasCheckedForInsights.current) {
@@ -151,37 +146,42 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
             // Score explanation exists - load it (display most recent)
             console.log('📖 Loading most recent score explanation from sheet');
             setScoreExplanation(stored.scoreExplanation);
+
+            // Also load Things to Look Out For if it exists
+            if (stored.thingsToLookOutFor) {
+              console.log('📖 Loading most recent Things to Look Out For from sheet');
+              setThingsToLookOutFor(stored.thingsToLookOutFor);
+            }
           } else {
             // No score explanation exists - this is first load ever
-            // Auto-generate FIRST analysis row
+            // Auto-generate FIRST analysis row with BOTH analyses
             console.log('🆕 No score explanation found - auto-generating FIRST analysis with gameInfo:', gameInfoData);
             setExplanationLoading(true);
+            setThingsLoading(true);
 
             try {
-              // Generate score explanation
-              const difference = hasBaseline ? teamAverage - baselineAverage : null;
+              console.log('🤖 Auto-generating BOTH analyses for FIRST entry with gameInfo:', gameInfoData);
 
-              console.log('🤖 Auto-calling generateScoreExplanation for FIRST entry with gameInfo:', gameInfoData);
-              const explanation = await generateScoreExplanation(
-                teamAverage,
-                baselineAverage,
-                difference,
-                overallAverage,
-                gameInfoData
-              );
+              // Generate both analyses in parallel
+              const [explanation, thingsAnalysis] = await Promise.all([
+                generateScoreExplanation(teamAverage, overallAverage, gameInfoData),
+                generateThingsToLookOutFor(data)
+              ]);
 
               // Update state
               setScoreExplanation(explanation);
+              setThingsToLookOutFor(thingsAnalysis);
 
-              // Save to Google Sheets with game info - creates FIRST row
-              console.log('💾 Auto-saving FIRST analysis row with gameInfo:', gameInfoData);
-              await saveInsights(explanation, null, gameInfoData);
+              // Save to Google Sheets with game info - creates FIRST row with BOTH analyses
+              console.log('💾 Auto-saving FIRST analysis row with BOTH analyses and gameInfo:', gameInfoData);
+              await saveInsights(explanation, null, gameInfoData, thingsAnalysis);
 
-              console.log('✅ Auto-generated FIRST score explanation saved successfully');
+              console.log('✅ Auto-generated FIRST analysis with both score explanation and things to look out for');
             } catch (error) {
-              console.error('❌ Error auto-generating score explanation:', error);
+              console.error('❌ Error auto-generating first analysis:', error);
             } finally {
               setExplanationLoading(false);
+              setThingsLoading(false);
             }
           }
         } catch (error) {
@@ -192,7 +192,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
       loadInsights();
     }
-  }, [loading, data.length, teamAverage, hasBaseline, baselineAverage, overallAverage, gameInfoData]);
+  }, [loading, data.length, teamAverage, overallAverage, gameInfoData, shouldGenerateAnalysis]);
 
   // Auto-generate analysis when trigger flag is set (from game info submission)
   React.useEffect(() => {
@@ -208,31 +208,34 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
       const generateNewAnalysis = async () => {
         setExplanationLoading(true);
+        setThingsLoading(true);
         try {
-          // Calculate difference if baseline exists
-          const difference = hasBaseline ? teamAverage - baselineAverage : null;
-
           console.log('🤖 Generating NEW analysis with gameInfo:', gameInfoData);
-          const explanation = await generateScoreExplanation(
-            teamAverage,
-            baselineAverage,
-            difference,
-            overallAverage,
-            gameInfoData
-          );
+
+          // Generate both analyses in parallel
+          const [explanation, thingsAnalysis] = await Promise.all([
+            generateScoreExplanation(
+              teamAverage,
+              overallAverage,
+              gameInfoData
+            ),
+            generateThingsToLookOutFor(data)
+          ]);
 
           // Update state
           setScoreExplanation(explanation);
+          setThingsToLookOutFor(thingsAnalysis);
 
           // Save to Google Sheets with game info - APPENDS new row
           console.log('💾 Saving new analysis row with gameInfo:', gameInfoData);
-          await saveInsights(explanation, null, gameInfoData);
+          await saveInsights(explanation, null, gameInfoData, thingsAnalysis);
 
           console.log('✅ New analysis generated and saved successfully');
         } catch (error) {
           console.error('❌ Error generating new analysis:', error);
         } finally {
           setExplanationLoading(false);
+          setThingsLoading(false);
           // Reset the trigger flag
           if (onAnalysisComplete) {
             onAnalysisComplete();
@@ -242,7 +245,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
       generateNewAnalysis();
     }
-  }, [shouldGenerateAnalysis, gameInfoData, data.length, loading, teamAverage, hasBaseline, baselineAverage, overallAverage, onAnalysisComplete]);
+  }, [shouldGenerateAnalysis, gameInfoData, data.length, loading, teamAverage, overallAverage, onAnalysisComplete]);
 
   /**
    * Empty State - No Data Loaded
@@ -331,30 +334,46 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
                 <div className="text-xs sm:text-sm text-gray-400 uppercase tracking-wider">Report Date</div>
                 <div className="text-base sm:text-lg font-semibold text-white">{currentDate}</div>
               </div>
-              <button
-                onClick={() => {
-                  refresh();
-                  if (onRefresh) onRefresh();
-                }}
-                disabled={loading}
-                className={`px-4 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] ${
-                  loading
-                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                    : 'bg-white text-gray-800 hover:bg-gray-100 active:scale-95'
-                }`}
-              >
-                {loading ? (
-                  <>
-                    <span className="inline-block animate-spin mr-2">⟳</span>
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <span className="mr-2">⟳</span>
-                    Refresh Data
-                  </>
-                )}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => {
+                    refresh();
+                    if (onRefresh) onRefresh();
+                  }}
+                  disabled={loading}
+                  className={`px-4 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] ${
+                    loading
+                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-800 hover:bg-gray-100 active:scale-95'
+                  }`}
+                >
+                  {loading ? (
+                    <>
+                      <span className="inline-block animate-spin mr-2">⟳</span>
+                      Loading...
+                    </>
+                  ) : (
+                    <>
+                      <span className="mr-2">⟳</span>
+                      Refresh Data
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    if (onAddGame) onAddGame();
+                  }}
+                  disabled={loading}
+                  className={`px-4 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] ${
+                    loading
+                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                      : 'bg-white/10 text-white border-2 border-white/20 hover:bg-white/20 active:scale-95'
+                  }`}
+                >
+                  <span className="mr-2">+</span>
+                  Add Game
+                </button>
+              </div>
             </div>
           </div>
 
@@ -378,7 +397,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
       <main className="w-full max-w-6xl mx-auto px-4 sm:px-8 lg:px-12 py-12">
 
         {/* Hero Section - Score and Trend Chart */}
-        <div className="flex flex-col lg:grid lg:grid-cols-[1fr,auto] gap-6 lg:gap-8 mb-12 pb-8 border-b-2 border-gray-200">
+        <div className="flex flex-col lg:grid lg:grid-cols-[1fr,auto,auto] gap-6 lg:gap-8 mb-12 pb-8 border-b-2 border-gray-200">
           {/* Main Score */}
           <div>
             <h2 className="text-xs sm:text-sm font-semibold text-gray-600 uppercase tracking-wider mb-2">
@@ -410,6 +429,28 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
             </div>
           </div>
 
+          {/* Submission Status Indicator */}
+          {gameInfoData && !gameInfoData.skipped && (
+            <div className="flex items-center justify-center lg:justify-start">
+              <div className="inline-flex flex-col gap-3 px-6 py-4 bg-gray-50 border-2 border-gray-300 rounded-lg shadow-md min-w-[200px]">
+                <div className="flex flex-col gap-1 text-left">
+                  <div className="text-2xl font-black text-gray-500 uppercase tracking-tight">
+                    {gameInfoData.result === 'Win' ? 'WIN' : gameInfoData.result === 'Lose' ? 'LOSE' : gameInfoData.result === 'Tie' ? 'TIE' : 'NO GAME'}
+                  </div>
+                  {gameInfoData.result !== 'No Game' && gameInfoData.yourScore !== null && gameInfoData.opponentScore !== null && (
+                    <div className="text-lg font-bold text-gray-500">
+                      {gameInfoData.yourScore} - {gameInfoData.opponentScore}
+                    </div>
+                  )}
+                </div>
+                <div className="text-left border-t-2 border-gray-300 pt-3">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Practice</div>
+                  <div className="text-3xl font-black text-gray-500">{gameInfoData.practicePerformance}<span className="text-lg text-gray-500">/10</span></div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Trend Chart */}
           <div className="flex items-center justify-center lg:justify-start">
             <TrendChart scoreHistory={scoreHistory} currentScore={teamAverage} />
@@ -424,8 +465,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
               What do NGauge scores mean?
             </h2>
             <p className="text-sm sm:text-base text-gray-700 leading-relaxed">
-              NGauge scores accurately measure team chemistry on a 100-point scale, reflecting how <strong>connected, clear, and ready</strong> the team feels. These scores use your teams baseline chemistry score to denoise
-              the data and show you the most <strong>meaningful changes in team chemistry.</strong>
+              NGauge scores accurately measure team chemistry on a 100-point scale, reflecting how <strong>connected, clear, and ready</strong> the team feels. These scores show you the most <strong>meaningful changes in team chemistry</strong> over time.
             </p>
           </div>
 
@@ -487,19 +527,13 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
           {/* Column Headers - Hidden on mobile, shown on md+ */}
           <div className="hidden md:grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
-            <div className={`grid ${hasBaseline ? 'grid-cols-[1fr,auto,auto]' : 'grid-cols-[1fr,auto]'} gap-3 sm:gap-6 px-3 items-center`}>
+            <div className="grid grid-cols-[1fr,auto] gap-3 sm:gap-6 px-3 items-center">
               <div className="text-xs font-bold text-gray-600 uppercase tracking-wider">Dimension</div>
               <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '80px' }}>Weekly</div>
-              {hasBaseline && (
-                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '60px' }}>Baseline</div>
-              )}
             </div>
-            <div className={`grid ${hasBaseline ? 'grid-cols-[1fr,auto,auto]' : 'grid-cols-[1fr,auto]'} gap-3 sm:gap-6 px-3 items-center`}>
+            <div className="grid grid-cols-[1fr,auto] gap-3 sm:gap-6 px-3 items-center">
               <div className="text-xs font-bold text-gray-600 uppercase tracking-wider">Dimension</div>
               <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '80px' }}>Weekly</div>
-              {hasBaseline && (
-                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider text-right" style={{ minWidth: '60px' }}>Baseline</div>
-              )}
             </div>
           </div>
 
@@ -508,16 +542,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
               const dimColor = getScoreColor(dimension.average);
               const weeklyScore = dimension.average;
 
-              // Get baseline score from database if available
-              const baselineScore = hasBaseline && baselineData
-                ? baselineData[dimension.name] || 0
-                : null;
-
-              // Calculate difference only if baseline exists
-              const difference = baselineScore !== null ? weeklyScore - baselineScore : null;
-
-              // ALWAYS show weekly trend (comparison to last refresh)
-              // Baseline column is separate and shows baseline value when available
+              // Show weekly trend (comparison to last refresh)
               let diffDisplay, diffColor, diffArrow;
 
               if (dimension.trend && dimension.numericChange !== null) {
@@ -551,7 +576,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
                   className="bg-white border-l-4 rounded px-3 py-2.5 h-full"
                   style={{ borderLeftColor: dimColor }}
                 >
-                  <div className={`grid ${hasBaseline ? 'grid-cols-[1fr,auto,auto]' : 'grid-cols-[1fr,auto]'} gap-3 sm:gap-6 items-center`}>
+                  <div className="grid grid-cols-[1fr,auto] gap-3 sm:gap-6 items-center">
                     {/* Dimension Name */}
                     <div className="font-semibold text-gray-900 text-xs sm:text-sm">
                       {dimension.name}
@@ -572,15 +597,6 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
                         </span>
                       )}
                     </div>
-
-                    {/* Baseline Score - Only show if baseline exists */}
-                    {hasBaseline && baselineScore !== null && (
-                      <div className="text-right" style={{ minWidth: '50px' }}>
-                        <span className="text-base sm:text-lg font-bold text-gray-500">
-                          {baselineScore.toFixed(1)}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 </div>
               );
@@ -589,7 +605,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
           {/* LLM Score Explanation Section */}
           <div className="mt-6">
-            <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-3 uppercase tracking-tight">
+            <h3 className="text-base sm:text-xl font-bold text-gray-900 mb-3 uppercase tracking-tight">
               Score Analysis
             </h3>
             {scoreExplanation ? (
@@ -598,12 +614,50 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
               </div>
             ) : (
               <p className="text-sm sm:text-base text-gray-900">
-                {hasBaseline
-                  ? "Click \"Explain Scores\" to generate an AI-powered analysis of the variance between baseline and weekly scores, and how this trend could impact your overall team chemistry average."
-                  : "Click \"Explain Scores\" to generate an AI-powered analysis of your weekly scores and overall team chemistry trends. (Note: No baseline data available for comparison)"}
+                Click "Explain Scores" to generate an AI-powered analysis of your weekly scores and overall team chemistry trends.
               </p>
             )}
           </div>
+
+          {/* Things to look out for Section */}
+          <div className="mt-6">
+            <h3 className="text-base sm:text-xl font-bold text-gray-900 mb-3 uppercase tracking-tight">
+              Things to look out for
+            </h3>
+
+            {/* Loading State */}
+            {thingsLoading && (
+              <p className="text-sm text-gray-500 italic">Analyzing player responses...</p>
+            )}
+
+            {/* Analysis Content */}
+            {thingsToLookOutFor && !thingsLoading && (
+              <div className="text-sm sm:text-base text-gray-900 leading-relaxed">
+                {thingsToLookOutFor.split('\n').map((line, index) => {
+                  // Check if line starts with **text** (markdown bold)
+                  const boldMatch = line.match(/^\*\*(.+?)\*\*(.*)$/);
+                  if (boldMatch) {
+                    return (
+                      <div key={index} className="mt-1 first:mt-0">
+                        <h4 className="font-bold text-sm sm:text-base mb-0.5">{boldMatch[1]}</h4>
+                        {boldMatch[2] && <p className="whitespace-pre-line">{boldMatch[2]}</p>}
+                      </div>
+                    );
+                  }
+                  // Regular line
+                  return line ? <p key={index} className="whitespace-pre-line mb-0.5">{line}</p> : null;
+                })}
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!thingsToLookOutFor && !thingsLoading && (
+              <p className="text-xs sm:text-sm text-gray-500 italic">
+                This analysis auto-generates with the Score Analysis above.
+              </p>
+            )}
+          </div>
+
         </div>
 
 
