@@ -68,7 +68,9 @@ async function fetchInsights(sheets, sheetId) {
       // No data or only headers - return empty insights
       return {
         hasInsights: false,
+        isComplete: false,
         scoreExplanation: null,
+        thingsToLookOutFor: null,
         insights: { summary: '', suggestions: [] }
       };
     }
@@ -83,8 +85,12 @@ async function fetchInsights(sheets, sheetId) {
     const scoreExplanation = latestRow[5] || null;  // Column F
     const thingsToLookOutFor = latestRow[6] || null; // Column G (removed Team Insights Summary)
 
+    // Check if BOTH fields are complete (not just one)
+    const isComplete = !!(scoreExplanation && thingsToLookOutFor);
+
     return {
       hasInsights: !!(scoreExplanation || thingsToLookOutFor),
+      isComplete,  // NEW: Both fields must be present
       scoreExplanation,
       thingsToLookOutFor,
       insights: { summary: '', suggestions: [] }
@@ -95,7 +101,9 @@ async function fetchInsights(sheets, sheetId) {
       // Sheet doesn't exist yet
       return {
         hasInsights: false,
+        isComplete: false,
         scoreExplanation: null,
+        thingsToLookOutFor: null,
         insights: { summary: '', suggestions: [] }
       };
     }

@@ -42,13 +42,6 @@ function App() {
     verifySession();
   }, []);
 
-  // Show game info modal when user successfully authenticates
-  useEffect(() => {
-    if (isAuthenticated === true && !isChecking) {
-      setShowGameInfoModal(true);
-    }
-  }, [isAuthenticated, isChecking]);
-
   // Handle game info submission
   const handleGameInfoSubmit = (data) => {
     console.log('📱 App.jsx - Received game info from modal:', data);

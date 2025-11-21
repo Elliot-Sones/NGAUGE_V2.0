@@ -71,13 +71,14 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
     return sum / scoreHistory.length;
   }, [scoreHistory, teamAverage]);
 
-  // Manual refresh function for score explanation
+  // Manual refresh function for both analyses
   // Fetches latest game info from sheet and generates new analysis with that same game data
   const refreshScoreExplanation = async () => {
     console.log('📊 Dashboard - refreshScoreExplanation called - fetching latest game info from sheet');
 
     if (data.length > 0) {
       setExplanationLoading(true);
+      setThingsLoading(true);
       try {
         // Fetch the most recent game info from the sheet
         const latestGameInfo = await fetchLatestGameInfo();
@@ -86,28 +87,32 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
           console.log('⚠️ No game info found in sheet - cannot regenerate analysis');
           setScoreExplanation('No historical game data found. Please refresh the page to add game information.');
           setExplanationLoading(false);
+          setThingsLoading(false);
           return;
         }
 
         console.log('📋 Using game info from most recent row:', latestGameInfo);
 
-        console.log('🤖 Generating NEW analysis with same game info:', latestGameInfo);
-        const explanation = await generateScoreExplanation(
-          teamAverage,
-          overallAverage,
-          latestGameInfo   // Use game info from latest row in sheet
-        );
+        console.log('🤖 Generating BOTH analyses with same game info:', latestGameInfo);
+        // Generate both analyses in parallel
+        const [explanation, thingsAnalysis] = await Promise.all([
+          generateScoreExplanation(teamAverage, overallAverage, latestGameInfo),
+          generateThingsToLookOutFor(data)
+        ]);
+
         setScoreExplanation(explanation);
+        setThingsToLookOutFor(thingsAnalysis);
 
         // Save to Google Sheets with SAME game info - APPENDS new row with new timestamp
-        console.log('💾 Appending new analysis row to Google Sheets with same gameInfo:', latestGameInfo);
-        await saveInsights(explanation, null, latestGameInfo, null);
-        console.log('✅ New analysis row appended successfully');
+        console.log('💾 Appending new analysis row to Google Sheets with BOTH analyses and same gameInfo:', latestGameInfo);
+        await saveInsights(explanation, null, latestGameInfo, thingsAnalysis);
+        console.log('✅ New analysis row with BOTH analyses appended successfully');
       } catch (error) {
-        console.error('❌ Failed to generate score explanation:', error);
+        console.error('❌ Failed to generate analyses:', error);
         setScoreExplanation('Unable to generate explanation. Please try again.');
       } finally {
         setExplanationLoading(false);
+        setThingsLoading(false);
       }
     }
   };
@@ -119,8 +124,6 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
     console.log('🔄 Dashboard useEffect - Conditions:', {
       loading,
       dataLength: data.length,
-      hasGameInfo: !!gameInfoData,
-      gameInfoData,
       hasChecked: hasCheckedForInsights.current,
       shouldGenerateAnalysis
     });
@@ -132,67 +135,54 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
       return;
     }
 
-    // Only run after data is loaded, gameInfo is available, and we haven't checked yet
-    if (!loading && data.length > 0 && gameInfoData && !hasCheckedForInsights.current) {
+    // Only run after data is loaded and we haven't checked yet
+    if (!loading && data.length > 0 && !hasCheckedForInsights.current) {
       hasCheckedForInsights.current = true;
-      console.log('✅ Auto-generation conditions met, starting loadInsights...');
+      console.log('✅ Initial load conditions met, checking for existing insights...');
 
-      // Load stored score explanation from Google Sheets OR auto-generate if none exists
+      // ALWAYS pull from latest insights first
       const loadInsights = async () => {
         try {
           const stored = await fetchStoredInsights();
 
-          if (stored.hasInsights && stored.scoreExplanation) {
-            // Score explanation exists - load it (display most recent)
-            console.log('📖 Loading most recent score explanation from sheet');
+          // Check if insights are COMPLETE (both fields present)
+          if (stored.isComplete) {
+            // Insights are complete - load them
+            console.log('📖 Loading complete insights from sheet');
             setScoreExplanation(stored.scoreExplanation);
-
-            // Also load Things to Look Out For if it exists
-            if (stored.thingsToLookOutFor) {
-              console.log('📖 Loading most recent Things to Look Out For from sheet');
-              setThingsToLookOutFor(stored.thingsToLookOutFor);
-            }
+            setThingsToLookOutFor(stored.thingsToLookOutFor);
           } else {
-            // No score explanation exists - this is first load ever
-            // Auto-generate FIRST analysis row with BOTH analyses
-            console.log('🆕 No score explanation found - auto-generating FIRST analysis with gameInfo:', gameInfoData);
-            setExplanationLoading(true);
-            setThingsLoading(true);
+            // Insights are incomplete or missing - need to regenerate
+            console.log('⚠️ Insights incomplete or missing - need game info to regenerate');
+            console.log('Stored insights status:', {
+              hasInsights: stored.hasInsights,
+              isComplete: stored.isComplete,
+              hasScoreExplanation: !!stored.scoreExplanation,
+              hasThingsToLookOutFor: !!stored.thingsToLookOutFor
+            });
 
-            try {
-              console.log('🤖 Auto-generating BOTH analyses for FIRST entry with gameInfo:', gameInfoData);
+            // Show placeholder message prompting user action
+            if (!stored.scoreExplanation) {
+              setScoreExplanation('No complete analysis found. Please use "Refresh Data" or "Add Game" to generate a new analysis.');
+            } else {
+              setScoreExplanation(stored.scoreExplanation);
+            }
 
-              // Generate both analyses in parallel
-              const [explanation, thingsAnalysis] = await Promise.all([
-                generateScoreExplanation(teamAverage, overallAverage, gameInfoData),
-                generateThingsToLookOutFor(data)
-              ]);
-
-              // Update state
-              setScoreExplanation(explanation);
-              setThingsToLookOutFor(thingsAnalysis);
-
-              // Save to Google Sheets with game info - creates FIRST row with BOTH analyses
-              console.log('💾 Auto-saving FIRST analysis row with BOTH analyses and gameInfo:', gameInfoData);
-              await saveInsights(explanation, null, gameInfoData, thingsAnalysis);
-
-              console.log('✅ Auto-generated FIRST analysis with both score explanation and things to look out for');
-            } catch (error) {
-              console.error('❌ Error auto-generating first analysis:', error);
-            } finally {
-              setExplanationLoading(false);
-              setThingsLoading(false);
+            if (!stored.thingsToLookOutFor) {
+              setThingsToLookOutFor(null);
+            } else {
+              setThingsToLookOutFor(stored.thingsToLookOutFor);
             }
           }
         } catch (error) {
-          console.error('❌ Error loading score explanation:', error);
+          console.error('❌ Error loading insights:', error);
           hasCheckedForInsights.current = false; // Allow retry
         }
       };
 
       loadInsights();
     }
-  }, [loading, data.length, teamAverage, overallAverage, gameInfoData, shouldGenerateAnalysis]);
+  }, [loading, data.length, shouldGenerateAnalysis]);
 
   // Auto-generate analysis when trigger flag is set (from game info submission)
   React.useEffect(() => {
