@@ -59,7 +59,7 @@ async function testGoogleSheetsAPI() {
     // Fetch data
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: 'Sheet1',
+      range: 'Weekly-Chemistry',
     });
 
     const data = response.data.values;

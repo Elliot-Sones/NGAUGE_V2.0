@@ -65,11 +65,25 @@ async function callGeminiAPI(prompt, type = 'team-insights') {
  * @param {number} weeklyScore - Current week's team chemistry score
  * @param {number} overallAverage - Overall average score across all weeks
  * @param {object|null} gameInfo - Game/practice information (result, scores, performance rating)
+ * @param {number|null} teamChemistryScore - Optional stored team chemistry score for context (only included if meaningfully different)
+ * @param {Array<object>|null} recentGames - Optional array of recent games (last 3) to enrich context
  * @returns {Promise<string>} Natural language explanation of the scores
  */
-export async function generateScoreExplanation(weeklyScore, overallAverage, gameInfo = null) {
+export async function generateScoreExplanation(
+  weeklyScore,
+  overallAverage,
+  gameInfo = null,
+  teamChemistryScore = null,
+  recentGames = null
+) {
   try {
-    const prompt = buildScoreExplanationPrompt(weeklyScore, overallAverage, gameInfo);
+    const prompt = buildScoreExplanationPrompt(
+      weeklyScore,
+      overallAverage,
+      gameInfo,
+      teamChemistryScore,
+      recentGames
+    );
     const explanation = await callGeminiAPI(prompt, 'score-explanation');
     return explanation;
   } catch (error) {
@@ -82,34 +96,90 @@ export async function generateScoreExplanation(weeklyScore, overallAverage, game
  * Builds the prompt for score explanation analysis
  * @private
  */
-function buildScoreExplanationPrompt(weeklyScore, overallAverage, gameInfo = null) {
+function buildScoreExplanationPrompt(
+  weeklyScore,
+  overallAverage,
+  gameInfo = null,
+  teamChemistryScore = null,
+  recentGames = null
+) {
   // Build game info section if available
   let gameInfoSection = '';
-  if (gameInfo && !gameInfo.skipped) {
-    const scoreInfo = gameInfo.result === 'No Game'
-      ? '- No competitive game this week'
-      : `- Score: ${gameInfo.yourScore} - ${gameInfo.opponentScore}`;
+  const chemistryScoreValue = typeof teamChemistryScore === 'number' ? teamChemistryScore : null;
+  const chemistryDelta = chemistryScoreValue !== null ? Math.abs(chemistryScoreValue - weeklyScore) : null;
+  const includeChemistryScore = chemistryScoreValue !== null && chemistryDelta >= 0.5; // Only include if meaningfully different
 
-    gameInfoSection = `
+  if (gameInfo && !gameInfo.skipped) {
+    // Handle both single game object and array of games
+    const games = Array.isArray(gameInfo) ? gameInfo : [gameInfo];
+
+    // Filter out skipped games
+    const validGames = games.filter(g => !g.skipped);
+
+    if (validGames.length > 0) {
+      const gameLines = validGames.map((game, index) => {
+        const gameNum = validGames.length > 1 ? `Game ${index + 1}: ` : '';
+        const scoreInfo = game.result === 'No competitive game'
+          ? 'No competitive game'
+          : `${game.result} (${game.yourScore}-${game.opponentScore})`;
+        return `- ${gameNum}${scoreInfo}`;
+      }).join('\n');
+
+      // Get practice performance from first game (all games have same practice rating)
+      const practiceRating = validGames[0].practicePerformance;
+
+      gameInfoSection = `
 **Game/Practice Context:**
-- Game Result: ${gameInfo.result}
-${scoreInfo}
-- Practice Performance Rating: ${gameInfo.practicePerformance}/10
+${gameLines}
+- Practice Performance Rating: ${practiceRating}/10
 `;
+    }
+  }
+
+  // Build recent games section (last 3 games) if provided
+  let recentGamesSection = '';
+  if (recentGames && Array.isArray(recentGames)) {
+    const validRecentGames = recentGames.filter(g => g && !g.skipped);
+    const lastThree = validRecentGames.slice(-3); // most recent three (assumed chronological order in array)
+
+    if (lastThree.length > 0) {
+      const recentLines = lastThree.map((game, index) => {
+        const scoreInfo = (game.result === 'No competitive game' || game.result === 'No Game')
+          ? 'No competitive game'
+          : game.result
+            ? `${game.result} (${game.yourScore ?? '?'}-${game.opponentScore ?? '?'})`
+            : 'Result N/A';
+        const practiceInfo = typeof game.practicePerformance === 'number'
+          ? ` | Practice: ${game.practicePerformance}/10`
+          : '';
+        return `- Recent Game ${index + 1}: ${scoreInfo}${practiceInfo}`;
+      }).join('\n');
+
+      recentGamesSection = `
+**Recent Games (last 3):**
+${recentLines}
+`;
+    }
   }
 
   return `You are an expert sports psychologist. Provide a brief 2-sentence analysis.
 
 **Data:**
 - Weekly Score: ${weeklyScore.toFixed(2)}
-- Season Average: ${overallAverage.toFixed(2)}${gameInfoSection}
+- Season Average: ${overallAverage.toFixed(2)}${includeChemistryScore ? `\n- Team Chemistry Score (context): ${chemistryScoreValue.toFixed(2)}` : ''}${gameInfoSection}${recentGamesSection}
 
 **Task:**
 Write exactly 2 concise sentences:
-1. Diagnose the team's cohesion level and key psychological factor (e.g., role clarity, trust, collective efficacy)${gameInfo && !gameInfo.skipped ? ', considering the game result and practice performance' : ''}
-2. Compare to season average and state what this trend indicates
+1. Diagnose the team's cohesion level and key psychological factor (e.g., role clarity, trust, collective efficacy)${gameInfo && !gameInfo.skipped ? ', considering the game result(s) and practice performance and their trends' : ''}
+2. Discuss the most important psychological factor(s) that are most likely to impact the team's performance in the upcoming game but do not diagnose just explain.
+If a Team Chemistry Score is provided, reference it only if it differs meaningfully from the Weekly Score; otherwise ignore it.
 
-Be direct and specific. No JSON formatting.`;
+**Rules:**
+Be direct and specific. No JSON formatting.
+Each sentence must be <= 30 words. Do not repeat numbers
+Do not add extra sections, bullets, or markdown beyond what is shown
+If multiple games, reference the overall trend; do not summarize each game separately; reference practice rating once
+`;
 }
 
 // =============================================================================
@@ -123,7 +193,7 @@ Be direct and specific. No JSON formatting.`;
  * @param {Array} playerResponses - Array of player response objects from the data array
  * @returns {Promise<string>} Natural language summary with player quotes
  */
-export async function generateThingsToLookOutFor(playerResponses) {
+ export async function generateThingsToLookOutFor(playerResponses) {
   try {
     console.log('🔍 generateThingsToLookOutFor called with', playerResponses.length, 'player responses');
     const prompt = buildThingsToLookOutForPrompt(playerResponses);
@@ -155,11 +225,11 @@ function buildThingsToLookOutForPrompt(playerResponses) {
   playerResponses.forEach((player, index) => {
     const playerLabel = player.name || `Player ${index + 1}`;
 
-    if (player.question1Answer && player.question1Answer.trim() !== '') {
+    if (player.question1Answer && player.question1Answer.trim().length >= 3) {
       q1Responses.push(`${playerLabel}: "${player.question1Answer}"`);
     }
 
-    if (player.question7Answer && player.question7Answer.trim() !== '') {
+    if (player.question7Answer && player.question7Answer.trim().length >= 3) {
       q9Responses.push(`${playerLabel}: "${player.question7Answer}"`);
     }
   });
@@ -198,6 +268,7 @@ Provide a brief analysis in TWO sections:
 - Be concise and direct
 - If a section has no responses, write "No responses provided."
 - No JSON formatting
+- Please never include the players names
 
 Format your response exactly like this:
 
@@ -207,4 +278,3 @@ Format your response exactly like this:
 **Additional Notes:**
 [Your brief analysis with quotes]`;
 }
-

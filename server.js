@@ -284,7 +284,7 @@ app.get('/api/sheets', async (req, res) => {
 
     // Determine appropriate status code
     const statusCode = error.code === 403 ? 403 :
-                       error.code === 404 ? 404 : 500;
+      error.code === 404 ? 404 : 500;
 
     res.status(statusCode).json({
       success: false,
@@ -303,7 +303,7 @@ app.get('/api/sheets', async (req, res) => {
 /**
  * GET /api/insights
  * Fetches stored AI insights from Google Sheets "AIInsights" sheet
- * NEW FORMAT: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
+ * NEW FORMAT: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Team Chemistry Score | Score Explanation | Things to Look Out For
  */
 app.get('/api/insights', async (req, res) => {
   try {
@@ -327,7 +327,7 @@ app.get('/api/insights', async (req, res) => {
     try {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'AIInsights!A:G',  // Read all 7 columns
+        range: 'AIInsights!A:H',  // Read all 8 columns (includes Team Chemistry Score)
       });
 
       const data = response.data.values;
@@ -337,6 +337,7 @@ app.get('/api/insights', async (req, res) => {
         return res.json({
           success: true,
           hasInsights: false,
+          teamChemistryScore: null,
           scoreExplanation: null,
           insights: { summary: '', suggestions: [] },
           timestamp: new Date().toISOString()
@@ -344,18 +345,24 @@ app.get('/api/insights', async (req, res) => {
       }
 
       // Parse the stored insights
-      // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
+      // Format (new): Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Team Chemistry Score | Score Explanation | Things to Look Out For
       const rows = data.slice(1); // Skip headers
 
       // Get the most recent row (last row in the sheet)
       const latestRow = rows[rows.length - 1];
 
-      const scoreExplanation = latestRow[5] || null;  // Column F
-      const thingsToLookOutFor = latestRow[6] || null; // Column G
+      const isNewFormat = latestRow.length >= 8;
+      const chemistryValue = isNewFormat ? parseFloat(latestRow[5]) : NaN;
+      const teamChemistryScore = isNewFormat && latestRow[5] !== 'N/A' && !Number.isNaN(chemistryValue)
+        ? chemistryValue
+        : null;
+      const scoreExplanation = latestRow[isNewFormat ? 6 : 5] || null;  // Column G (or F legacy)
+      const thingsToLookOutFor = latestRow[isNewFormat ? 7 : 6] || null; // Column H (or G legacy)
 
       return res.json({
         success: true,
         hasInsights: !!(scoreExplanation || thingsToLookOutFor),
+        teamChemistryScore,
         scoreExplanation,
         thingsToLookOutFor,
         insights: { summary: '', suggestions: [] },
@@ -368,6 +375,7 @@ app.get('/api/insights', async (req, res) => {
         return res.json({
           success: true,
           hasInsights: false,
+          teamChemistryScore: null,
           scoreExplanation: null,
           insights: { summary: '', suggestions: [] },
           timestamp: new Date().toISOString()
@@ -388,8 +396,8 @@ app.get('/api/insights', async (req, res) => {
 
 /**
  * GET /api/insights/latest-game-info
- * Fetches the most recent game info from AIInsights sheet
- * Returns: { gameInfo: { result, yourScore, opponentScore, practicePerformance } }
+ * Fetches all games from the most recent week (same timestamp)
+ * Returns: { gameInfo: [{ result, yourScore, opponentScore, practicePerformance }, ...] }
  */
 app.get('/api/insights/latest-game-info', async (req, res) => {
   try {
@@ -412,7 +420,7 @@ app.get('/api/insights/latest-game-info', async (req, res) => {
     try {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'AIInsights!A:G',  // Read all 7 columns
+        range: 'AIInsights!A:H',  // Read all 8 columns (includes Team Chemistry Score)
       });
 
       const data = response.data.values;
@@ -426,24 +434,38 @@ app.get('/api/insights/latest-game-info', async (req, res) => {
         });
       }
 
-      // Get the most recent row (last row in the sheet)
-      const latestRow = data[data.length - 1];
+      // Get all data rows (skip header)
+      const dataRows = data.slice(1);
 
-      // Extract game info from columns B-E
-      // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
-      const gameInfo = {
-        result: latestRow[1] !== 'N/A' ? latestRow[1] : null,
-        yourScore: latestRow[2] !== 'N/A' ? parseInt(latestRow[2]) : null,
-        opponentScore: latestRow[3] !== 'N/A' ? parseInt(latestRow[3]) : null,
-        practicePerformance: latestRow[4] !== 'N/A' ? parseInt(latestRow[4]) : null,
-        skipped: latestRow[1] === 'N/A'  // If result is N/A, it was skipped
-      };
+      // Get the most recent timestamp (last row's timestamp)
+      const latestTimestamp = dataRows[dataRows.length - 1][0];
 
-      console.log('📋 Latest game info retrieved:', gameInfo);
+      // Find all rows with the latest timestamp
+      const latestWeekRows = dataRows.filter(row => row[0] === latestTimestamp);
+
+      // Extract game info from each row
+      // Format (new): Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Team Chemistry Score | Score Explanation | Things to Look Out For
+      const gameInfoArray = latestWeekRows.map(row => {
+        const isNewFormat = row.length >= 8;
+        const chemistryValue = isNewFormat ? parseFloat(row[5]) : NaN;
+
+        return {
+          result: row[1] !== 'N/A' ? row[1] : null,
+          yourScore: row[2] !== 'N/A' ? parseInt(row[2]) : null,
+          opponentScore: row[3] !== 'N/A' ? parseInt(row[3]) : null,
+          practicePerformance: row[4] !== 'N/A' ? parseInt(row[4]) : null,
+          teamChemistryScore: isNewFormat && row[5] !== 'N/A' && !Number.isNaN(chemistryValue)
+            ? chemistryValue
+            : null,
+          skipped: row[1] === 'N/A'  // If result is N/A, it was skipped
+        };
+      });
+
+      console.log('📋 Latest game info retrieved:', gameInfoArray.length, 'game(s) from timestamp:', latestTimestamp);
 
       return res.json({
         success: true,
-        gameInfo,
+        gameInfo: gameInfoArray,
         timestamp: new Date().toISOString()
       });
 
@@ -472,11 +494,11 @@ app.get('/api/insights/latest-game-info', async (req, res) => {
 /**
  * POST /api/insights
  * Saves AI insights to Google Sheets "AIInsights" sheet
- * NEW FORMAT: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
+ * NEW FORMAT: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Team Chemistry Score | Score Explanation | Things to Look Out For
  */
 app.post('/api/insights', async (req, res) => {
   try {
-    const { scoreExplanation, insights, gameInfo, thingsToLookOutFor } = req.body;
+    const { scoreExplanation, insights, gameInfo, thingsToLookOutFor, teamChemistryScore } = req.body;
 
     console.log('🔥🔥🔥 NEW CODE - POST /api/insights received:', {
       hasScoreExplanation: !!scoreExplanation,
@@ -484,7 +506,8 @@ app.post('/api/insights', async (req, res) => {
       hasGameInfo: !!gameInfo,
       hasThingsToLookOutFor: !!thingsToLookOutFor,
       thingsToLookOutForLength: thingsToLookOutFor?.length || 0,
-      gameInfo
+      gameInfo,
+      teamChemistryScore
     });
 
     if (!scoreExplanation && !insights && !thingsToLookOutFor) {
@@ -519,7 +542,7 @@ app.post('/api/insights', async (req, res) => {
     try {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'AIInsights!A1:G1',
+        range: 'AIInsights!A1:H1',
       });
       currentHeaders = response.data.values?.[0] || null;
 
@@ -528,15 +551,15 @@ app.post('/api/insights', async (req, res) => {
       if (currentHeaders && currentHeaders[0] !== expectedFirstColumn) {
         console.log('📋 Detected old format, migrating to new format...');
         needsMigration = true;
-      } else if (currentHeaders && currentHeaders.length === 7 && currentHeaders[0] === expectedFirstColumn) {
-        console.log('📋 Sheet already has correct 7-column format');
+      } else if (currentHeaders && currentHeaders.length === 8 && currentHeaders[0] === expectedFirstColumn) {
+        console.log('📋 Sheet already has correct 8-column format');
       } else {
         needsMigration = true;
       }
     } catch (error) {
       // Sheet doesn't exist
       if (error.code === 400) {
-        console.log('⚠️ Sheet does not exist, creating with 7-column format...');
+        console.log('⚠️ Sheet does not exist, creating with 8-column format...');
         await sheets.spreadsheets.batchUpdate({
           spreadsheetId: SHEET_ID,
           resource: {
@@ -554,7 +577,7 @@ app.post('/api/insights', async (req, res) => {
 
     // If we need to migrate or create new headers
     if (!currentHeaders || needsMigration) {
-      console.log('📝 Adding/updating headers to 7-column format...');
+      console.log('📝 Adding/updating headers to 8-column format (with Team Chemistry Score)...');
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
         range: 'AIInsights!A1',
@@ -566,45 +589,63 @@ app.post('/api/insights', async (req, res) => {
             'Your Score',
             'Opponent Score',
             'Practice Performance (1-10)',
+            'Team Chemistry Score',
             'Score Explanation',
             'Things to Look Out For'
           ]]
         }
       });
-      console.log('✅ Headers updated to 7-column format');
+      console.log('✅ Headers updated to 8-column format');
     }
 
-    // Create a single row with timestamp, game info, and both AI analyses
-    console.log('🔍 DEBUG - Building row with:', {
+    // Create rows with timestamp, game info, and both AI analyses
+    console.log('🔍 DEBUG - Building row(s) with:', {
       scoreExplanationLength: scoreExplanation?.length || 0,
       thingsToLookOutForLength: thingsToLookOutFor?.length || 0,
-      thingsToLookOutForPreview: thingsToLookOutFor ? thingsToLookOutFor.substring(0, 100) : 'NULL/UNDEFINED'
+      thingsToLookOutForPreview: thingsToLookOutFor ? thingsToLookOutFor.substring(0, 100) : 'NULL/UNDEFINED',
+      gameInfoType: Array.isArray(gameInfo) ? 'array' : 'object',
+      gameInfoLength: Array.isArray(gameInfo) ? gameInfo.length : 1
     });
 
-    const row = [
+    // Handle both single game object and array of games
+    const games = Array.isArray(gameInfo) ? gameInfo : (gameInfo ? [gameInfo] : []);
+
+    // If no games provided, create a single row with N/A
+    if (games.length === 0) {
+      games.push({ skipped: true });
+    }
+
+    // Create rows for each game with the same timestamp and insights
+    const chemistryScoreValue = parseFloat(teamChemistryScore);
+    const normalizedChemistryScore = !Number.isNaN(chemistryScoreValue)
+      ? Number(chemistryScoreValue.toFixed(1))
+      : 'N/A';
+
+    const rows = games.map(game => [
       timestamp,
-      gameInfo && !gameInfo.skipped ? gameInfo.result : 'N/A',
-      gameInfo && !gameInfo.skipped ? gameInfo.yourScore : 'N/A',
-      gameInfo && !gameInfo.skipped ? gameInfo.opponentScore : 'N/A',
-      gameInfo && !gameInfo.skipped ? gameInfo.practicePerformance : 'N/A',
+      game && !game.skipped ? game.result : 'N/A',
+      game && !game.skipped ? game.yourScore : 'N/A',
+      game && !game.skipped ? game.opponentScore : 'N/A',
+      game && !game.skipped ? game.practicePerformance : 'N/A',
+      normalizedChemistryScore,
       scoreExplanation || '',
       thingsToLookOutFor || ''
-    ];
+    ]);
 
-    console.log('🔥🔥🔥 NEW FORMAT - Appending row:', JSON.stringify(row, null, 2));
+    console.log('🔥🔥🔥 NEW FORMAT - Appending row(s):', JSON.stringify(rows, null, 2));
 
-    // Append the row
+    // Append all rows at once
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: 'AIInsights!A:G',
+      range: 'AIInsights!A:H',
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       resource: {
-        values: [row]
+        values: rows
       }
     });
 
-    console.log('✅ Row appended successfully');
+    console.log(`✅ ${rows.length} row(s) appended successfully`);
 
     res.json({
       success: true,

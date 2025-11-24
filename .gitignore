@@ -69,6 +69,7 @@ secrets/
 !.vscode/extensions.json
 !.vscode/settings.json.example
 .idea/
+.claude/
 *.swp
 *.swo
 *.swn

@@ -5,9 +5,10 @@ function GameInfoModal({ onSubmit, onSkip }) {
   const [formData, setFormData] = useState({
     result: '',
     yourScore: '',
-    opponentScore: '',
-    practicePerformance: ''
+    opponentScore: ''
   });
+  const [practicePerformance, setPracticePerformance] = useState('');
+  const [addedGames, setAddedGames] = useState([]);
   const [errors, setErrors] = useState({});
   const resultSelectRef = useRef(null);
 
@@ -26,7 +27,7 @@ function GameInfoModal({ onSubmit, onSkip }) {
     }
   };
 
-  const validateForm = () => {
+  const validateGameForm = () => {
     const newErrors = {};
 
     if (!formData.result) {
@@ -48,33 +49,72 @@ function GameInfoModal({ onSubmit, onSkip }) {
       }
     }
 
-    if (!formData.practicePerformance || formData.practicePerformance === '') {
-      newErrors.practicePerformance = 'Please rate practice performance';
-    } else {
-      const performance = parseInt(formData.practicePerformance);
-      if (isNaN(performance) || performance < 1 || performance > 10) {
-        newErrors.practicePerformance = 'Rating must be between 1 and 10';
-      }
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const validatePracticePerformance = () => {
+    if (!practicePerformance || practicePerformance === '') {
+      setErrors({ practicePerformance: 'Please rate practice performance' });
+      return false;
+    }
+    const performance = parseInt(practicePerformance);
+    if (isNaN(performance) || performance < 1 || performance > 10) {
+      setErrors({ practicePerformance: 'Rating must be between 1 and 10' });
+      return false;
+    }
+    return true;
+  };
+
+  const handleAddAnotherGame = () => {
+    if (validateGameForm()) {
+      const gameData = {
+        result: formData.result,
+        yourScore: formData.result !== 'No Game' ? parseInt(formData.yourScore) : null,
+        opponentScore: formData.result !== 'No Game' ? parseInt(formData.opponentScore) : null,
+      };
+      setAddedGames(prev => [...prev, gameData]);
+      // Clear form for next game
+      setFormData({
+        result: '',
+        yourScore: '',
+        opponentScore: ''
+      });
+      setErrors({});
+      // Refocus on result select
+      if (resultSelectRef.current) {
+        resultSelectRef.current.focus();
+      }
+    }
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    if (validateForm()) {
-      const gameData = {
-        result: formData.result,
-        yourScore: formData.result !== 'No Game' ? parseInt(formData.yourScore) : null,
-        opponentScore: formData.result !== 'No Game' ? parseInt(formData.opponentScore) : null,
-        practicePerformance: parseInt(formData.practicePerformance),
-        skipped: false
-      };
-      console.log('🎮 GameInfoModal - Submitting game data:', gameData);
-      onSubmit(gameData);
-    }
+    // Validate current game form
+    if (!validateGameForm()) return;
+
+    // Validate practice performance
+    if (!validatePracticePerformance()) return;
+
+    // Combine current form data with added games
+    const currentGame = {
+      result: formData.result,
+      yourScore: formData.result !== 'No Game' ? parseInt(formData.yourScore) : null,
+      opponentScore: formData.result !== 'No Game' ? parseInt(formData.opponentScore) : null,
+    };
+
+    const allGames = [...addedGames, currentGame];
+
+    // Add practice performance to all games
+    const gamesWithPractice = allGames.map(game => ({
+      ...game,
+      practicePerformance: parseInt(practicePerformance),
+      skipped: false
+    }));
+
+    console.log('🎮 GameInfoModal - Submitting games:', gamesWithPractice);
+    onSubmit(gamesWithPractice);
   };
 
   const handleSkip = () => {
@@ -128,9 +168,8 @@ function GameInfoModal({ onSubmit, onSkip }) {
                   ref={resultSelectRef}
                   value={formData.result}
                   onChange={(e) => handleChange('result', e.target.value)}
-                  className={`w-full px-4 py-3 bg-white/5 border ${
-                    errors.result ? 'border-red-500' : 'border-white/10'
-                  } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
+                  className={`w-full px-4 py-3 bg-white/5 border ${errors.result ? 'border-red-500' : 'border-white/10'
+                    } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
                 >
                   <option value="" className="bg-gray-800">Select result...</option>
                   <option value="Win" className="bg-gray-800">Win</option>
@@ -145,52 +184,68 @@ function GameInfoModal({ onSubmit, onSkip }) {
 
               {/* Score Section - Only show when a game result is selected (not "No Game") */}
               {formData.result && formData.result !== 'No Game' && (
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Your Team Score */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Your Score
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.yourScore}
-                      onChange={(e) => handleChange('yourScore', e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      className={`w-full px-4 py-3 bg-white/5 border ${
-                        errors.yourScore ? 'border-red-500' : 'border-white/10'
-                      } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
-                      placeholder="0"
-                    />
-                    {errors.yourScore && (
-                      <p className="mt-1 text-sm text-red-400">{errors.yourScore}</p>
-                    )}
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Your Team Score */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-200 mb-2">
+                        Your Score
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.yourScore}
+                        onChange={(e) => handleChange('yourScore', e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        className={`w-full px-4 py-3 bg-white/5 border ${errors.yourScore ? 'border-red-500' : 'border-white/10'
+                          } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
+                        placeholder="0"
+                      />
+                      {errors.yourScore && (
+                        <p className="mt-1 text-sm text-red-400">{errors.yourScore}</p>
+                      )}
+                    </div>
+
+                    {/* Opponent Score */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-200 mb-2">
+                        Opponent
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.opponentScore}
+                        onChange={(e) => handleChange('opponentScore', e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        className={`w-full px-4 py-3 bg-white/5 border ${errors.opponentScore ? 'border-red-500' : 'border-white/10'
+                          } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
+                        placeholder="0"
+                      />
+                      {errors.opponentScore && (
+                        <p className="mt-1 text-sm text-red-400">{errors.opponentScore}</p>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Opponent Score */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Opponent
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.opponentScore}
-                      onChange={(e) => handleChange('opponentScore', e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      className={`w-full px-4 py-3 bg-white/5 border ${
-                        errors.opponentScore ? 'border-red-500' : 'border-white/10'
-                      } rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
-                      placeholder="0"
-                    />
-                    {errors.opponentScore && (
-                      <p className="mt-1 text-sm text-red-400">{errors.opponentScore}</p>
+                  {/* Add Another Game Button - Small inline link */}
+                  <div className="text-center -mt-2">
+                    <button
+                      type="button"
+                      onClick={handleAddAnotherGame}
+                      className="text-sm text-white/30 hover:text-white/50 transition-colors"
+                    >
+                      + Add another game
+                    </button>
+                    {addedGames.length > 0 && (
+                      <p className="text-xs text-white/50 mt-1">
+                        {addedGames.length} game{addedGames.length > 1 ? 's' : ''} added
+                      </p>
                     )}
                   </div>
-                </div>
+                </>
               )}
 
-              {/* Practice Performance */}
+              {/* Practice Performance - Moved to end, asked once for the week */}
               <div>
                 <label className="block text-base font-semibold text-white mb-2">
                   Practice Performance (1-10)
@@ -202,14 +257,18 @@ function GameInfoModal({ onSubmit, onSkip }) {
                   type="range"
                   min="1"
                   max="10"
-                  value={formData.practicePerformance || 5}
-                  onChange={(e) => handleChange('practicePerformance', e.target.value)}
-                  className={`w-full h-2 bg-white/5 rounded-lg appearance-none cursor-pointer slider ${
-                    errors.practicePerformance ? 'border border-red-500' : ''
-                  }`}
+                  value={practicePerformance || 5}
+                  onChange={(e) => {
+                    setPracticePerformance(e.target.value);
+                    if (errors.practicePerformance) {
+                      setErrors(prev => ({ ...prev, practicePerformance: '' }));
+                    }
+                  }}
+                  className={`w-full h-2 bg-white/5 rounded-lg appearance-none cursor-pointer slider ${errors.practicePerformance ? 'border border-red-500' : ''
+                    }`}
                   style={{
-                    background: formData.practicePerformance
-                      ? `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((formData.practicePerformance - 1) / 9) * 100}%, rgba(255,255,255,0.05) ${((formData.practicePerformance - 1) / 9) * 100}%, rgba(255,255,255,0.05) 100%)`
+                    background: practicePerformance
+                      ? `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((practicePerformance - 1) / 9) * 100}%, rgba(255,255,255,0.05) ${((practicePerformance - 1) / 9) * 100}%, rgba(255,255,255,0.05) 100%)`
                       : 'rgba(255,255,255,0.05)'
                   }}
                 />

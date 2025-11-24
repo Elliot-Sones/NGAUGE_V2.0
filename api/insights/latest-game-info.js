@@ -69,7 +69,7 @@ export default async function handler(req, res) {
       const response = await Promise.race([
         sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
-          range: 'AIInsights!A:G',  // Read all 7 columns
+          range: 'AIInsights!A:H',  // Read all 8 columns (includes Team Chemistry Score)
         }),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Google Sheets API timeout')), API_TIMEOUT)
@@ -91,12 +91,15 @@ export default async function handler(req, res) {
       const latestRow = data[data.length - 1];
 
       // Extract game info from columns B-E
-      // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Team Insights Summary
+      // Format (new): Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Team Chemistry Score | Score Explanation | Things to Look Out For
       const gameInfo = {
         result: latestRow[1] !== 'N/A' ? latestRow[1] : null,
         yourScore: latestRow[2] !== 'N/A' ? parseInt(latestRow[2]) : null,
         opponentScore: latestRow[3] !== 'N/A' ? parseInt(latestRow[3]) : null,
         practicePerformance: latestRow[4] !== 'N/A' ? parseInt(latestRow[4]) : null,
+        teamChemistryScore: (latestRow.length >= 8 && latestRow[5] !== 'N/A' && !Number.isNaN(parseFloat(latestRow[5])))
+          ? parseFloat(latestRow[5])
+          : null,
         skipped: latestRow[1] === 'N/A'  // If result is N/A, it was skipped
       };
 

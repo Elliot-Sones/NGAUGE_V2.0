@@ -105,7 +105,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
         // Save to Google Sheets with SAME game info - APPENDS new row with new timestamp
         console.log('💾 Appending new analysis row to Google Sheets with BOTH analyses and same gameInfo:', latestGameInfo);
-        await saveInsights(explanation, null, latestGameInfo, thingsAnalysis);
+        await saveInsights(explanation, null, latestGameInfo, thingsAnalysis, teamAverage);
         console.log('✅ New analysis row with BOTH analyses appended successfully');
       } catch (error) {
         console.error('❌ Failed to generate analyses:', error);
@@ -146,24 +146,50 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
           const stored = await fetchStoredInsights();
 
           // Check if insights are COMPLETE (both fields present)
-          if (stored.isComplete) {
+          if (stored.scoreExplanation && stored.thingsToLookOutFor) {
             // Insights are complete - load them
             console.log('📖 Loading complete insights from sheet');
             setScoreExplanation(stored.scoreExplanation);
             setThingsToLookOutFor(stored.thingsToLookOutFor);
           } else {
-            // Insights are incomplete or missing - show GameInfoModal
-            console.log('⚠️ Insights incomplete or missing - showing GameInfoModal');
-            console.log('Stored insights status:', {
-              hasInsights: stored.hasInsights,
-              isComplete: stored.isComplete,
-              hasScoreExplanation: !!stored.scoreExplanation,
-              hasThingsToLookOutFor: !!stored.thingsToLookOutFor
-            });
+            // Insights are incomplete or missing
+            console.log('⚠️ Insights incomplete - checking for existing game info to auto-generate...');
 
-            // Trigger GameInfoModal to show
-            if (onRequestGameInfo) {
-              onRequestGameInfo();
+            // Try to fetch latest game info to auto-generate
+            const latestGameInfo = await fetchLatestGameInfo();
+
+            if (latestGameInfo) {
+              console.log('🤖 Found existing game info, auto-generating insights...');
+              setExplanationLoading(true);
+              setThingsLoading(true);
+
+              try {
+                // Generate both analyses in parallel using existing game info
+                const [explanation, thingsAnalysis] = await Promise.all([
+                  generateScoreExplanation(teamAverage, overallAverage, latestGameInfo),
+                  generateThingsToLookOutFor(data)
+                ]);
+
+                setScoreExplanation(explanation);
+                setThingsToLookOutFor(thingsAnalysis);
+
+                // Save the auto-generated insights
+                await saveInsights(explanation, null, latestGameInfo, thingsAnalysis, teamAverage);
+                console.log('✅ Auto-generated insights saved successfully');
+              } catch (err) {
+                console.error('❌ Auto-generation failed:', err);
+                // If auto-gen fails, fall back to requesting game info
+                if (onRequestGameInfo) onRequestGameInfo();
+              } finally {
+                setExplanationLoading(false);
+                setThingsLoading(false);
+              }
+            } else {
+              // No game info found - must ask user
+              console.log('⚠️ No game info found - requesting from user');
+              if (onRequestGameInfo) {
+                onRequestGameInfo();
+              }
             }
           }
         } catch (error) {
@@ -210,7 +236,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
           // Save to Google Sheets with game info - APPENDS new row
           console.log('💾 Saving new analysis row with gameInfo:', gameInfoData);
-          await saveInsights(explanation, null, gameInfoData, thingsAnalysis);
+          await saveInsights(explanation, null, gameInfoData, thingsAnalysis, teamAverage);
 
           console.log('✅ New analysis generated and saved successfully');
         } catch (error) {
@@ -318,16 +344,15 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
-                  onClick={() => {
-                    refresh();
-                    if (onRefresh) onRefresh();
+                  onClick={async () => {
+                    await refresh();
+                    await refreshScoreExplanation();
                   }}
                   disabled={loading}
-                  className={`px-4 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] ${
-                    loading
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-white text-gray-800 hover:bg-gray-100 active:scale-95'
-                  }`}
+                  className={`px-4 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] ${loading
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-white text-gray-800 hover:bg-gray-100 active:scale-95'
+                    }`}
                 >
                   {loading ? (
                     <>
@@ -346,11 +371,10 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
                     if (onAddGame) onAddGame();
                   }}
                   disabled={loading}
-                  className={`px-4 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] ${
-                    loading
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-white/10 text-white border-2 border-white/20 hover:bg-white/20 active:scale-95'
-                  }`}
+                  className={`px-4 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] ${loading
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-white/10 text-white border-2 border-white/20 hover:bg-white/20 active:scale-95'
+                    }`}
                 >
                   <span className="mr-2">+</span>
                   Add Game
@@ -490,11 +514,10 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
             <button
               onClick={refreshScoreExplanation}
               disabled={explanationLoading}
-              className={`px-4 sm:px-5 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] text-sm sm:text-base ${
-                explanationLoading
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-green-600 text-white hover:bg-green-700 active:scale-95 hover:shadow-lg'
-              }`}
+              className={`px-4 sm:px-5 py-2.5 rounded-lg font-semibold transition-all shadow-md min-h-[44px] text-sm sm:text-base ${explanationLoading
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-green-600 text-white hover:bg-green-700 active:scale-95 hover:shadow-lg'
+                }`}
             >
               {explanationLoading ? (
                 <>
@@ -543,7 +566,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
                   diffColor = dimension.trend.color;
                   diffArrow = dimension.trend.direction === 'up' ? '↑'
                     : dimension.trend.direction === 'down' ? '↓'
-                    : '';
+                      : '';
                 }
               } else {
                 // No trend data yet (first load)
@@ -595,8 +618,8 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
                 {scoreExplanation}
               </div>
             ) : (
-              <p className="text-sm sm:text-base text-gray-900">
-                Click "Explain Scores" to generate an AI-powered analysis of your weekly scores and overall team chemistry trends.
+              <p className="text-sm sm:text-base text-gray-600">
+                Analyzing player scores...
               </p>
             )}
           </div>
@@ -609,7 +632,7 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
             {/* Loading State */}
             {thingsLoading && (
-              <p className="text-sm text-gray-500 italic">Analyzing player responses...</p>
+              <p className="text-sm sm:text-base text-gray-600">Analyzing player responses...</p>
             )}
 
             {/* Analysis Content */}

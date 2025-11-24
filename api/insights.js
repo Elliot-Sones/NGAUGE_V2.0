@@ -6,8 +6,8 @@
  * - POST: Saves new insights to "AIInsights" sheet
  *
  * SHEET STRUCTURE (AIInsights):
- * Row 1: Headers [Timestamp | Game Result | Your Score | Opponent Score | Practice Performance (1-10) | Score Explanation | Things to Look Out For]
- * Row 2+: Data rows with game info and AI analysis (one row per analysis)
+ * Row 1: Headers [Timestamp | Game Result | Your Score | Opponent Score | Practice Performance (1-10) | Team Chemistry Score | Score Explanation | Things to Look Out For]
+ * Row 2+: Data rows with game info, overall team chemistry score, and AI analyses (one row per analysis)
  */
 
 import { google } from 'googleapis';
@@ -55,7 +55,7 @@ async function fetchInsights(sheets, sheetId) {
     const response = await Promise.race([
       sheets.spreadsheets.values.get({
         spreadsheetId: sheetId,
-        range: 'AIInsights!A:G',  // Read all 7 columns
+        range: 'AIInsights!A:H',  // Read all 8 columns (includes Team Chemistry Score)
       }),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Google Sheets API timeout')), API_TIMEOUT)
@@ -69,6 +69,7 @@ async function fetchInsights(sheets, sheetId) {
       return {
         hasInsights: false,
         isComplete: false,
+        teamChemistryScore: null,
         scoreExplanation: null,
         thingsToLookOutFor: null,
         insights: { summary: '', suggestions: [] }
@@ -76,14 +77,19 @@ async function fetchInsights(sheets, sheetId) {
     }
 
     // Parse the stored insights
-    // Format: Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Score Explanation | Things to Look Out For
+    // Format (new): Timestamp | Game Result | Your Score | Opponent Score | Practice Performance | Team Chemistry Score | Score Explanation | Things to Look Out For
     const rows = data.slice(1); // Skip headers
 
     // Get the most recent row (last row in the sheet)
     const latestRow = rows[rows.length - 1];
 
-    const scoreExplanation = latestRow[5] || null;  // Column F
-    const thingsToLookOutFor = latestRow[6] || null; // Column G (removed Team Insights Summary)
+    // Support both legacy 7-column rows and new 8-column rows
+    const isNewFormat = latestRow.length >= 8;
+    const teamChemistryScore = isNewFormat && latestRow[5] !== 'N/A'
+      ? parseFloat(latestRow[5])
+      : null;
+    const scoreExplanation = latestRow[isNewFormat ? 6 : 5] || null;  // Column G (or F legacy)
+    const thingsToLookOutFor = latestRow[isNewFormat ? 7 : 6] || null; // Column H (or G legacy)
 
     // Check if BOTH fields are complete (not just one)
     const isComplete = !!(scoreExplanation && thingsToLookOutFor);
@@ -91,6 +97,7 @@ async function fetchInsights(sheets, sheetId) {
     return {
       hasInsights: !!(scoreExplanation || thingsToLookOutFor),
       isComplete,  // NEW: Both fields must be present
+      teamChemistryScore,
       scoreExplanation,
       thingsToLookOutFor,
       insights: { summary: '', suggestions: [] }
@@ -102,6 +109,7 @@ async function fetchInsights(sheets, sheetId) {
       return {
         hasInsights: false,
         isComplete: false,
+        teamChemistryScore: null,
         scoreExplanation: null,
         thingsToLookOutFor: null,
         insights: { summary: '', suggestions: [] }
@@ -112,16 +120,17 @@ async function fetchInsights(sheets, sheetId) {
 }
 
 /**
- * Save insights to Google Sheets (removed Team Insights Summary - now 7 columns)
+ * Save insights to Google Sheets (8-column format with Team Chemistry Score)
  */
-async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInfo, thingsToLookOutFor) {
+async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInfo, thingsToLookOutFor, teamChemistryScore) {
   const timestamp = new Date().toISOString();
 
-  console.log('🔥🔥🔥 saveInsights (7-column format) called with:', {
+  console.log('🔥🔥🔥 saveInsights (8-column format) called with:', {
     timestamp,
     gameInfo,
     scoreExplanationLength: scoreExplanation?.length || 0,
-    thingsToLookOutForLength: thingsToLookOutFor?.length || 0
+    thingsToLookOutForLength: thingsToLookOutFor?.length || 0,
+    teamChemistryScore
   });
 
   // Check current sheet structure
@@ -131,7 +140,7 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'AIInsights!A1:G1',
+      range: 'AIInsights!A1:H1',
     });
     currentHeaders = response.data.values?.[0] || null;
 
@@ -141,7 +150,7 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
       console.log('📋 Detected old format (first column: "' + currentHeaders[0] + '"), migrating to new format...');
       needsMigration = true;
     } else if (currentHeaders && currentHeaders.length === 7 && currentHeaders[0] === expectedFirstColumn) {
-      console.log('📋 Sheet already has correct 7-column format');
+      console.log('📋 Sheet already has correct 8-column format');
     } else {
       // Headers exist but incomplete
       needsMigration = true;
@@ -167,7 +176,7 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
 
   // If we need to migrate or create new headers
   if (!currentHeaders || needsMigration) {
-    console.log('📝 Adding/updating headers to 7-column format...');
+    console.log('📝 Adding/updating headers to 8-column format (with Team Chemistry Score)...');
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
       range: 'AIInsights!A1',
@@ -179,12 +188,13 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
           'Your Score',
           'Opponent Score',
           'Practice Performance (1-10)',
+          'Team Chemistry Score',
           'Score Explanation',
           'Things to Look Out For'
         ]]
       }
     });
-    console.log('✅ Headers updated to 7-column format');
+    console.log('✅ Headers updated to 8-column format');
   }
 
   // Prepare rows to write - each analysis creates ONE row with all data
@@ -194,8 +204,14 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
   console.log('🔍 DEBUG - Building row with:', {
     scoreExplanationLength: scoreExplanation?.length || 0,
     thingsToLookOutForLength: thingsToLookOutFor?.length || 0,
-    thingsToLookOutForPreview: thingsToLookOutFor ? thingsToLookOutFor.substring(0, 100) : 'NULL/UNDEFINED'
+    thingsToLookOutForPreview: thingsToLookOutFor ? thingsToLookOutFor.substring(0, 100) : 'NULL/UNDEFINED',
+    teamChemistryScore
   });
+
+  const chemistryScoreValue = parseFloat(teamChemistryScore);
+  const normalizedChemistryScore = !Number.isNaN(chemistryScoreValue)
+    ? Number(chemistryScoreValue.toFixed(1))
+    : 'N/A';
 
   const row = [
     timestamp,
@@ -203,6 +219,7 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
     gameInfo && !gameInfo.skipped ? gameInfo.yourScore : 'N/A',
     gameInfo && !gameInfo.skipped ? gameInfo.opponentScore : 'N/A',
     gameInfo && !gameInfo.skipped ? gameInfo.practicePerformance : 'N/A',
+    normalizedChemistryScore,
     scoreExplanation || '',
     thingsToLookOutFor || ''
   ];
@@ -215,7 +232,7 @@ async function saveInsights(sheets, sheetId, scoreExplanation, insights, gameInf
   if (rows.length > 0) {
     await sheets.spreadsheets.values.append({
       spreadsheetId: sheetId,
-      range: 'AIInsights!A:G',
+      range: 'AIInsights!A:H',
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       resource: {
@@ -253,14 +270,15 @@ export default async function handler(req, res) {
 
     // POST: Save new insights
     if (req.method === 'POST') {
-      const { scoreExplanation, insights, gameInfo, thingsToLookOutFor } = req.body;
+      const { scoreExplanation, insights, gameInfo, thingsToLookOutFor, teamChemistryScore } = req.body;
 
       console.log('🔵 API /api/insights POST - Received request body:', {
         hasScoreExplanation: !!scoreExplanation,
         hasInsights: !!insights,
         hasGameInfo: !!gameInfo,
         hasThingsToLookOutFor: !!thingsToLookOutFor,
-        gameInfo: gameInfo
+        gameInfo: gameInfo,
+        teamChemistryScore
       });
 
       if (!scoreExplanation && !insights && !thingsToLookOutFor) {
@@ -271,7 +289,15 @@ export default async function handler(req, res) {
       }
 
       console.log('📝 Calling saveInsights with gameInfo:', gameInfo);
-      await saveInsights(sheets, SHEET_ID, scoreExplanation, insights, gameInfo, thingsToLookOutFor);
+      await saveInsights(
+        sheets,
+        SHEET_ID,
+        scoreExplanation,
+        insights,
+        gameInfo,
+        thingsToLookOutFor,
+        teamChemistryScore
+      );
       console.log('✅ saveInsights completed');
 
       return res.status(200).json({

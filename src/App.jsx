@@ -97,7 +97,10 @@ function App() {
   if (!isAuthenticated) {
     return (
       <PasswordGate
-        onSuccess={() => setIsAuthenticated(true)}
+        onSuccess={() => {
+          setIsAuthenticated(true);
+          setShowGameInfoModal(true);
+        }}
       />
     );
   }

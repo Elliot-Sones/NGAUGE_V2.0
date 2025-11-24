@@ -228,7 +228,8 @@ export async function fetchStoredInsights() {
 
 /**
  * Fetches the most recent game info from Google Sheets AIInsights tab
- * @returns {Promise<Object|null>} Latest game info or null if no data
+ * Returns all games from the latest week (same timestamp)
+ * @returns {Promise<Array|null>} Array of game info objects or null if no data
  */
 export async function fetchLatestGameInfo() {
   try {
@@ -263,16 +264,23 @@ export async function fetchLatestGameInfo() {
  * @param {Object} insights - Insights object with summary and suggestions
  * @param {Object|null} gameInfo - Game/practice information
  * @param {string|null} thingsToLookOutFor - Things to Look Out For analysis text
+ * @param {number|null} teamChemistryScore - Overall team chemistry score to persist with the row
  * @returns {Promise<boolean>} Success status
  */
-export async function saveInsights(scoreExplanation, insights, gameInfo = null, thingsToLookOutFor = null) {
+export async function saveInsights(
+  scoreExplanation,
+  insights,
+  gameInfo = null,
+  thingsToLookOutFor = null,
+  teamChemistryScore = null
+) {
   try {
     const backendUrl = import.meta.env.VITE_BACKEND_URL !== undefined
       ? import.meta.env.VITE_BACKEND_URL
       : (import.meta.env.DEV ? 'http://localhost:3002' : '');
     const url = `${backendUrl}/api/insights`;
 
-    const payload = { scoreExplanation, insights, gameInfo, thingsToLookOutFor };
+    const payload = { scoreExplanation, insights, gameInfo, thingsToLookOutFor, teamChemistryScore };
     console.log('💾 dataService.saveInsights - Sending to backend:', url);
     console.log('📦 Payload:', JSON.stringify(payload, null, 2));
     console.log('🔍 DEBUG - thingsToLookOutFor details:', {
