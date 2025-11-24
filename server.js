@@ -510,11 +510,26 @@ app.post('/api/insights', async (req, res) => {
       teamChemistryScore
     });
 
-    if (!scoreExplanation && !insights && !thingsToLookOutFor) {
+    // CRITICAL FIX: If AI analysis failed but we have game info, save with fallback messages
+    // This prevents infinite modal loop when Claude API fails
+    const hasAnyInsight = scoreExplanation || insights || thingsToLookOutFor;
+    const hasGameInfo = gameInfo && (Array.isArray(gameInfo) ? gameInfo.length > 0 : true);
+
+    if (!hasAnyInsight && !hasGameInfo) {
       return res.status(400).json({
         success: false,
-        error: 'At least one of scoreExplanation, insights, or thingsToLookOutFor is required'
+        error: 'At least one of scoreExplanation, insights, thingsToLookOutFor, or gameInfo is required'
       });
+    }
+
+    // If we have game info but no insights (AI failed), use fallback messages
+    let finalScoreExplanation = scoreExplanation;
+    let finalThingsToLookOutFor = thingsToLookOutFor;
+
+    if (hasGameInfo && !hasAnyInsight) {
+      console.log('⚠️ AI analysis failed but game info exists - using fallback messages');
+      finalScoreExplanation = 'Analysis temporarily unavailable. AI service encountered an error. Please click "Explain Scores" to retry.';
+      finalThingsToLookOutFor = 'Player feedback analysis temporarily unavailable. Click "Explain Scores" to retry.';
     }
 
     if (!fs.existsSync(CREDENTIALS_PATH)) {
@@ -628,8 +643,8 @@ app.post('/api/insights', async (req, res) => {
       game && !game.skipped ? game.opponentScore : 'N/A',
       game && !game.skipped ? game.practicePerformance : 'N/A',
       normalizedChemistryScore,
-      scoreExplanation || '',
-      thingsToLookOutFor || ''
+      finalScoreExplanation || '',
+      finalThingsToLookOutFor || ''
     ]);
 
     console.log('🔥🔥🔥 NEW FORMAT - Appending row(s):', JSON.stringify(rows, null, 2));
