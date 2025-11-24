@@ -91,6 +91,17 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
           return;
         }
 
+        // Check if the latest game was skipped
+        const wasSkipped = latestGameInfo.length > 0 && latestGameInfo[0]?.skipped;
+        if (wasSkipped) {
+          console.log('⏭️ Latest game was skipped - cannot regenerate analysis with no game data');
+          setScoreExplanation('Game information was skipped for this week. Click "Add Game" to provide game details.');
+          setThingsToLookOutFor('No player feedback analysis available - game info was skipped.');
+          setExplanationLoading(false);
+          setThingsLoading(false);
+          return;
+        }
+
         console.log('📋 Using game info from most recent row:', latestGameInfo);
 
         console.log('🤖 Generating BOTH analyses with same game info:', latestGameInfo);
@@ -147,18 +158,24 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
 
           // Check if insights are COMPLETE (both fields present)
           if (stored.scoreExplanation && stored.thingsToLookOutFor) {
-            // Insights are complete - load them
+            // Insights are complete - load them (including skip placeholders)
             console.log('📖 Loading complete insights from sheet');
             setScoreExplanation(stored.scoreExplanation);
             setThingsToLookOutFor(stored.thingsToLookOutFor);
+          } else if (stored.scoreExplanation || stored.thingsToLookOutFor) {
+            // Partial insights exist - load what we have and don't request more
+            console.log('📖 Loading partial insights from sheet - not requesting more');
+            if (stored.scoreExplanation) setScoreExplanation(stored.scoreExplanation);
+            if (stored.thingsToLookOutFor) setThingsToLookOutFor(stored.thingsToLookOutFor);
           } else {
-            // Insights are incomplete or missing
-            console.log('⚠️ Insights incomplete - checking for existing game info to auto-generate...');
+            // No insights at all - check for existing game info to auto-generate
+            console.log('⚠️ No insights found - checking for existing game info to auto-generate...');
 
             // Try to fetch latest game info to auto-generate
             const latestGameInfo = await fetchLatestGameInfo();
 
-            if (latestGameInfo) {
+            if (latestGameInfo && latestGameInfo.length > 0 && !latestGameInfo[0]?.skipped) {
+              // Valid game info exists and wasn't skipped - try to auto-generate
               console.log('🤖 Found existing game info, auto-generating insights...');
               setExplanationLoading(true);
               setThingsLoading(true);
@@ -184,6 +201,11 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
                 setExplanationLoading(false);
                 setThingsLoading(false);
               }
+            } else if (latestGameInfo && latestGameInfo.length > 0 && latestGameInfo[0]?.skipped) {
+              // Game was skipped - don't request anything, just acknowledge
+              console.log('⏭️ Latest game was skipped - not requesting game info again');
+              setScoreExplanation('Game information was skipped for this week.');
+              setThingsToLookOutFor('No player feedback analysis available - game info was skipped.');
             } else {
               // No game info found - must ask user
               console.log('⚠️ No game info found - requesting from user');

@@ -51,11 +51,34 @@ function App() {
   };
 
   // Handle game info skip
-  const handleGameInfoSkip = (data) => {
+  const handleGameInfoSkip = async (data) => {
     console.log('📱 App.jsx - User skipped game info:', data);
     setGameInfoData(data);
-    setShowGameInfoModal(false);
-    setShouldGenerateAnalysis(true); // Trigger analysis even for skipped
+
+    // Don't trigger analysis for skipped games - instead save the skip directly
+    // This prevents the infinite modal loop where failed/incomplete analysis triggers game info request again
+    try {
+      // Import saveInsights dynamically to save the skip state
+      const { saveInsights } = await import('./services/dataService');
+
+      // Save a placeholder record to prevent the modal from showing again
+      // IMPORTANT: Wait for save to complete BEFORE closing modal to prevent race condition
+      await saveInsights(
+        'Game information was skipped for this week.',
+        null,
+        data,
+        'No player feedback analysis available - game info was skipped.',
+        null
+      );
+      console.log('✅ Skip state saved to sheet');
+
+      // Only close modal after save succeeds
+      setShowGameInfoModal(false);
+    } catch (error) {
+      console.error('❌ Failed to save skip state:', error);
+      // Still close modal even on error to prevent user being stuck
+      setShowGameInfoModal(false);
+    }
   };
 
   // Handle refresh from Dashboard (re-show game info modal)
