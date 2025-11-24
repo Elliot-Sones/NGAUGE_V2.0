@@ -109,12 +109,12 @@ function buildScoreExplanationPrompt(
   const chemistryDelta = chemistryScoreValue !== null ? Math.abs(chemistryScoreValue - weeklyScore) : null;
   const includeChemistryScore = chemistryScoreValue !== null && chemistryDelta >= 0.5; // Only include if meaningfully different
 
-  if (gameInfo && !gameInfo.skipped) {
+  if (gameInfo) {
     // Handle both single game object and array of games
     const games = Array.isArray(gameInfo) ? gameInfo : [gameInfo];
 
     // Filter out skipped games
-    const validGames = games.filter(g => !g.skipped);
+    const validGames = games.filter(g => g && !g.skipped);
 
     if (validGames.length > 0) {
       const gameLines = validGames.map((game, index) => {
@@ -193,7 +193,7 @@ If multiple games, reference the overall trend; do not summarize each game separ
  * @param {Array} playerResponses - Array of player response objects from the data array
  * @returns {Promise<string>} Natural language summary with player quotes
  */
- export async function generateThingsToLookOutFor(playerResponses) {
+export async function generateThingsToLookOutFor(playerResponses) {
   try {
     console.log('🔍 generateThingsToLookOutFor called with', playerResponses.length, 'player responses');
     const prompt = buildThingsToLookOutForPrompt(playerResponses);

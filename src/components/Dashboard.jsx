@@ -436,26 +436,36 @@ const Dashboard = ({ gameInfoData, onRefresh, shouldGenerateAnalysis, onAnalysis
           </div>
 
           {/* Submission Status Indicator */}
-          {gameInfoData && !gameInfoData.skipped && (
-            <div className="flex items-center justify-center lg:justify-start">
-              <div className="inline-flex flex-col gap-3 px-6 py-4 bg-gray-50 border-2 border-gray-300 rounded-lg shadow-md min-w-[200px]">
-                <div className="flex flex-col gap-1 text-left">
-                  <div className="text-2xl font-black text-gray-500 uppercase tracking-tight">
-                    {gameInfoData.result === 'Win' ? 'WIN' : gameInfoData.result === 'Lose' ? 'LOSE' : gameInfoData.result === 'Tie' ? 'TIE' : 'NO GAME'}
-                  </div>
-                  {gameInfoData.result !== 'No Game' && gameInfoData.yourScore !== null && gameInfoData.opponentScore !== null && (
-                    <div className="text-lg font-bold text-gray-500">
-                      {gameInfoData.yourScore} - {gameInfoData.opponentScore}
+          {(() => {
+            // Normalize gameInfoData to handle both array and single object
+            const displayGame = Array.isArray(gameInfoData)
+              ? gameInfoData[0]  // Use first game if array
+              : gameInfoData;    // Use object directly if not array
+
+            // Only render if we have valid game data
+            if (!displayGame || displayGame.skipped) return null;
+
+            return (
+              <div className="flex items-center justify-center lg:justify-start">
+                <div className="inline-flex flex-col gap-3 px-6 py-4 bg-gray-50 border-2 border-gray-300 rounded-lg shadow-md min-w-[200px]">
+                  <div className="flex flex-col gap-1 text-left">
+                    <div className="text-2xl font-black text-gray-500 uppercase tracking-tight">
+                      {displayGame.result === 'Win' ? 'WIN' : displayGame.result === 'Lose' ? 'LOSE' : displayGame.result === 'Tie' ? 'TIE' : 'NO GAME'}
                     </div>
-                  )}
-                </div>
-                <div className="text-left border-t-2 border-gray-300 pt-3">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Practice</div>
-                  <div className="text-3xl font-black text-gray-500">{gameInfoData.practicePerformance}<span className="text-lg text-gray-500">/10</span></div>
+                    {displayGame.result !== 'No Game' && displayGame.yourScore !== null && displayGame.opponentScore !== null && (
+                      <div className="text-lg font-bold text-gray-500">
+                        {displayGame.yourScore} - {displayGame.opponentScore}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-left border-t-2 border-gray-300 pt-3">
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Practice</div>
+                    <div className="text-3xl font-black text-gray-500">{displayGame.practicePerformance}<span className="text-lg text-gray-500">/10</span></div>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Trend Chart */}
           <div className="flex items-center justify-center lg:justify-start">
